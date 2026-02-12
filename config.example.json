@@ -1,0 +1,12 @@
+{
+  "dashscope": {
+    "api_key": "your_dashscope_api_key_here"
+  },
+  "doubao": {
+    "app_id": "your_doubao_app_id_here",
+    "access_token": "your_doubao_access_token_here",
+    "resource_id": "volc.seedasr.auc",
+    "submit_endpoint": "https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit",
+    "query_endpoint": "https://openspeech.bytedance.com/api/v3/auc/bigmodel/query"
+  }
+}

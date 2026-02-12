@@ -1,0 +1,21 @@
+# 抖音视频信息提取器依赖
+# Python 版本要求: Python 3.7+
+
+# 链接解析模块依赖
+playwright>=1.40.0  # 浏览器自动化，用于解析抖音页面
+
+# 文本提取模块依赖
+dashscope>=1.14.0   # 阿里云 Paraformer 模型
+requests>=2.31.0    # HTTP 请求库
+
+# 安装说明:
+# 1. 安装 Python 依赖:
+#    pip install -r requirements.txt
+#
+# 2. 安装 Playwright 浏览器:
+#    playwright install chromium
+#    或: python -m playwright install chromium
+#
+# 3. 配置 API 密钥:
+#    cp config.example.json config.json
+#    然后编辑 config.json 填入你的 API 密钥

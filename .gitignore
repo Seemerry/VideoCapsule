@@ -1,0 +1,66 @@
+# 配置文件（包含API密钥）
+config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Playwright
+.playwright/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 调试文件
+debug_*.json
+debug_*.html
+
+# 测试输出文件
+test_*.json
+test_*.txt
+*_test.json
+*_test.txt
+result*.json
+output*.json
+*_full.json
+bilibili_*.json
+douyin_*.json
+
+# 日志文件
+*.log
+logs/
+
+# 临时文件
+*.tmp
+*.bak
+*.swp
+~*
