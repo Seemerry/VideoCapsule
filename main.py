@@ -1,24 +1,29 @@
 #!/usr/bin/env python3
-"""视频信息提取器 - 支持抖音和Bilibili链接，输出视频信息和文本"""
+"""视频信息提取器 - 支持抖音、Bilibili链接和本地视频，输出视频信息和文本"""
 
 import argparse
 import json
+import os
 import re
 import sys
 
-from modules import DouyinLinkParser, BilibiliLinkParser, TextExtractor
+from modules import DouyinLinkParser, BilibiliLinkParser, LocalVideoParser, TextExtractor
 
 
 def detect_platform(url: str) -> str:
     """
-    检测URL所属平台
+    检测URL所属平台或是否为本地文件
 
     Args:
-        url: 视频链接
+        url: 视频链接或本地文件路径
 
     Returns:
-        str: 平台名称 ('douyin', 'bilibili', 'unknown')
+        str: 平台名称 ('douyin', 'bilibili', 'local', 'unknown')
     """
+    # 首先检查是否是本地文件
+    if os.path.isfile(url):
+        return 'local'
+
     url_lower = url.lower()
     if any(domain in url_lower for domain in ['douyin.com', 'iesdouyin.com']):
         return 'douyin'
@@ -33,12 +38,15 @@ class VideoExtractor:
     def __init__(self, config_path: str = None):
         self.douyin_parser = DouyinLinkParser()
         self.bilibili_parser = BilibiliLinkParser()
+        self.local_parser = LocalVideoParser()
         self.text_extractor = TextExtractor(config_path)
 
     def _get_parser(self, platform: str):
         """根据平台获取对应的解析器"""
         if platform == 'bilibili':
             return self.bilibili_parser
+        elif platform == 'local':
+            return self.local_parser
         return self.douyin_parser
 
     def extract(self, url: str,
@@ -99,9 +107,9 @@ class VideoExtractor:
 def main():
     """主函数"""
     arg_parser = argparse.ArgumentParser(
-        description='视频信息提取器 - 支持抖音和Bilibili，输出完整的视频信息和文本'
+        description='视频信息提取器 - 支持抖音、Bilibili和本地视频，输出完整的视频信息和文本'
     )
-    arg_parser.add_argument('url', nargs='?', help='视频链接或分享文本（支持抖音/Bilibili）')
+    arg_parser.add_argument('url', nargs='?', help='视频链接、分享文本或本地视频文件路径（支持抖音/Bilibili/本地文件）')
     arg_parser.add_argument('-m', '--model', choices=['paraformer', 'doubao'],
                         default='doubao', help='转录模型（默认: doubao）')
     arg_parser.add_argument('-s', '--speaker-info', action='store_true',
@@ -128,14 +136,27 @@ def main():
     link_parser = extractor._get_parser(platform)
     video_url = link_parser.extract_url(input_text)
 
-    if not video_url or not video_url.startswith('http'):
-        error_result = {
-            'status': {'success': False, 'error': '未能从输入中提取出有效的视频链接'},
-            'input': input_text[:100] + '...' if len(input_text) > 100 else input_text
-        }
-        output_json = json.dumps(error_result, ensure_ascii=False, indent=2)
-        _write_output(output_json, args.output)
-        sys.exit(1)
+    # 验证输入（本地文件或URL）
+    if platform == 'local':
+        # 本地文件验证
+        if not video_url or not os.path.isfile(video_url):
+            error_result = {
+                'status': {'success': False, 'error': '本地视频文件不存在'},
+                'input': input_text[:100] + '...' if len(input_text) > 100 else input_text
+            }
+            output_json = json.dumps(error_result, ensure_ascii=False, indent=2)
+            _write_output(output_json, args.output)
+            sys.exit(1)
+    else:
+        # URL验证
+        if not video_url or not video_url.startswith('http'):
+            error_result = {
+                'status': {'success': False, 'error': '未能从输入中提取出有效的视频链接'},
+                'input': input_text[:100] + '...' if len(input_text) > 100 else input_text
+            }
+            output_json = json.dumps(error_result, ensure_ascii=False, indent=2)
+            _write_output(output_json, args.output)
+            sys.exit(1)
 
     # 仅解析链接模式
     if args.no_transcribe:

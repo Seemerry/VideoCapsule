@@ -8,5 +8,11 @@
     "resource_id": "volc.seedasr.auc",
     "submit_endpoint": "https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit",
     "query_endpoint": "https://openspeech.bytedance.com/api/v3/auc/bigmodel/query"
+  },
+  "oss": {
+    "access_key_id": "your_oss_access_key_id_here",
+    "access_key_secret": "your_oss_access_key_secret_here",
+    "bucket_name": "your_bucket_name",
+    "endpoint": "oss-cn-shenzhen.aliyuncs.com"
   }
 }

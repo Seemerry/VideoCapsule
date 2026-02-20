@@ -1,12 +1,13 @@
 # 视频信息提取器
 
-综合了抖音和 Bilibili 链接解析、音频转文本功能的工具。输入一个视频链接，即可获取完整的视频信息和文本转录结果。
+综合了抖音、Bilibili 链接解析和本地视频处理的音频转文本工具。输入一个视频链接或本地视频文件，即可获取完整的视频信息和文本转录结果。
 
 ## 功能特性
 
-- **多平台支持**：自动识别抖音和 Bilibili 链接
+- **多平台支持**：自动识别抖音、Bilibili 链接和本地视频文件
   - 抖音：短链接、完整链接、分享文本
   - Bilibili：BV号链接、b23.tv 短链接、纯BV号
+  - 本地视频：支持 mp4、avi、mov、mkv、flv、wmv、webm、m4v 格式
 
 - **链接解析模块**：解析视频链接，提取视频信息
   - 视频下载链接
@@ -32,6 +33,8 @@ DouyinVideoExtractor/
 │   ├── __init__.py
 │   ├── douyin_parser.py        # 抖音链接解析（Playwright）
 │   ├── bilibili_parser.py      # Bilibili链接解析（HTTP API）
+│   ├── local_parser.py         # 本地视频解析（ffprobe）
+│   ├── oss_uploader.py         # OSS文件上传模块
 │   └── text_extractor.py       # 文本提取模块（音频转文本）
 ├── config.json                 # 配置文件（需自行填写，已gitignore）
 ├── config.example.json         # 配置文件示例
@@ -89,9 +92,20 @@ cp config.example.json config.json
     "resource_id": "volc.seedasr.auc",
     "submit_endpoint": "https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit",
     "query_endpoint": "https://openspeech.bytedance.com/api/v3/auc/bigmodel/query"
+  },
+  "oss": {
+    "access_key_id": "your_oss_access_key_id_here",
+    "access_key_secret": "your_oss_access_key_secret_here",
+    "bucket_name": "your_bucket_name",
+    "endpoint": "oss-cn-shenzhen.aliyuncs.com"
   }
 }
 ```
+
+**OSS 配置说明**（本地视频转录需要）：
+- 需要阿里云 OSS Bucket
+- AccessKey 需要有 `PutObject`、`GetObject`、`DeleteObject` 权限
+- 转录完成后会自动删除临时文件
 
 **注意**：`config.json` 包含敏感信息，已被 `.gitignore` 忽略，请勿提交到版本控制系统。
 
@@ -109,14 +123,18 @@ python main.py "https://www.bilibili.com/video/BVxxxxx/" -o result.json
 # Bilibili短链接
 python main.py "https://b23.tv/xxxxx" -o result.json
 
-# 仅解析链接，不进行转录
+# 本地视频文件（自动检测）
+python main.py "D:\path\to\video.mp4" -o result.json
+
+# 仅解析链接/文件，不进行转录
 python main.py "URL" --no-transcribe -o result.json
 ```
 
 **重要提示**：
 - Windows 控制台中文会显示为乱码，**建议使用 `-o` 参数保存到文件**
-- 程序会自动检测链接类型（抖音/Bilibili）
-- 直接传递URL即可，不需要复制前面的分享文本
+- 程序会自动检测输入类型（抖音/Bilibili/本地文件）
+- 本地视频转录需要配置 OSS（用于临时上传）
+- 使用 `--no-transcribe` 可跳过转录，仅提取视频信息
 
 ### 高级选项
 
@@ -135,12 +153,12 @@ python main.py "URL" --config /path/to/config.json -o result.json
 
 | 参数 | 说明 | 示例 |
 |------|------|------|
-| `url` | 视频链接或分享文本（可选） | `"https://v.douyin.com/xxxxx/"` |
+| `url` | 视频链接、分享文本或本地文件路径（可选） | `"https://v.douyin.com/xxxxx/"` 或 `"D:\video.mp4"` |
 | `-m, --model` | 转录模型选择 | `paraformer` 或 `doubao`（默认） |
 | `-s, --speaker-info` | 启用说话人识别 | 添加此标志即可 |
 | `-c, --config` | 配置文件路径 | `./config.json`（默认） |
 | `-o, --output` | 输出文件路径 | `result.json` |
-| `--no-transcribe` | 仅解析链接，不进行转录 | 添加此标志即可 |
+| `--no-transcribe` | 仅解析链接/文件，不进行转录 | 添加此标志即可 |
 
 ## 输出格式
 
@@ -264,24 +282,47 @@ result = parser.parse("https://www.bilibili.com/video/BVxxxxx/")
 result = parser.parse("https://b23.tv/xxxxx")
 ```
 
+### 本地视频解析模块 (modules/local_parser.py)
+
+封装了本地视频文件解析功能，使用 ffprobe 获取视频信息。
+
+```python
+from modules import LocalVideoParser
+
+parser = LocalVideoParser()
+
+# 检查是否是本地视频文件
+if parser.is_local_file("D:\\video.mp4"):
+    # 解析视频信息
+    result = parser.parse("D:\\video.mp4")
+    # result 包含: status, urls, content, author_info, statistics, video_detail, music_info
+    # 注意: statistics 字段为 null（本地文件无统计数据）
+```
+
 ### 文本提取模块 (modules/text_extractor.py)
 
-封装了音频转文本功能。
+封装了音频转文本功能，支持 URL 和本地文件。
 
 ```python
 from modules import TextExtractor
 
 extractor = TextExtractor()  # 默认从 ./config.json 读取配置
 
-# 提取文本
+# 从 URL 提取文本
 result = extractor.extract(
     "https://example.com/audio.mp3",
     model='doubao',           # 或 'paraformer'
     enable_speaker_info=False # 启用说话人识别
 )
 
+# 从本地文件提取文本（需要配置 OSS）
+result = extractor.extract(
+    "D:\\video.mp4",
+    model='doubao'
+)
+
 # result 包含:
-# - url: 音频URL
+# - url: 音频URL（本地文件会先上传到OSS）
 # - text: 完整文本
 # - segments: 分段信息 [{"text": "...", "start": 0, "end": 2000}]
 ```
@@ -292,6 +333,7 @@ result = extractor.extract(
 |------|---------|------|
 | 抖音 | Playwright | 浏览器自动化，捕获 API 响应 |
 | Bilibili | HTTP API | 直接调用公开 API，速度快 |
+| 本地文件 | ffprobe | 获取视频时长等元数据，转录需上传 OSS |
 
 ## 注意事项
 
@@ -316,6 +358,11 @@ result = extractor.extract(
    - Bilibili 使用 DASH 格式，视频和音频分离（.m4s 文件）
    - `video_url` 和 `audio_url` 分别对应独立的流
 
+6. **本地视频转录**
+   - 需要配置阿里云 OSS（用于临时上传文件）
+   - 需要安装 ffmpeg（包含 ffprobe）以获取视频时长
+   - 转录完成后会自动删除 OSS 上的临时文件
+
 ## 常见问题
 
 ### Q: 为什么输出显示乱码？
@@ -333,6 +380,13 @@ result = extractor.extract(
 
 ### Q: Bilibili 视频的 video_url 是 m4s 格式？
 **A**: Bilibili 使用 DASH 流媒体格式，视频和音频是分离的。如果需要合并格式，可以使用 FFmpeg 工具合并 video.m4s 和 audio.m4s。
+
+### Q: 本地视频转录失败怎么办？
+**A**: 检查：
+1. `config.json` 中的 OSS 配置是否正确
+2. OSS Bucket 权限是否允许 PutObject/GetObject/DeleteObject
+3. 是否安装了 ffmpeg（包含 ffprobe）
+4. 本地视频文件格式是否支持（mp4/avi/mov/mkv/flv/wmv/webm/m4v）
 
 ## 许可证
 

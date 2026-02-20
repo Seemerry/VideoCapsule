@@ -1,6 +1,7 @@
 """文本提取模块 - 音频转文本功能"""
 
 import json
+import os
 import uuid
 import time
 import requests
@@ -15,6 +16,7 @@ class TextExtractor:
     def __init__(self, config_path: Optional[str] = None):
         self.config = self._load_config(config_path)
         self._setup_dashscope()
+        self._oss_uploader = None
 
     def _load_config(self, config_path: Optional[str] = None) -> dict:
         """加载配置文件"""
@@ -36,21 +38,61 @@ class TextExtractor:
         except ImportError:
             pass
 
-    def extract(self, audio_url: str, model: str = 'doubao',
+    def _get_oss_uploader(self):
+        """获取OSS上传器（懒加载）"""
+        if self._oss_uploader is None and 'oss' in self.config:
+            from .oss_uploader import OSSUploader
+            self._oss_uploader = OSSUploader(self.config['oss'])
+        return self._oss_uploader
+
+    def extract(self, audio_source: str, model: str = 'doubao',
                 language_hints: Optional[List[str]] = None,
                 enable_speaker_info: bool = False) -> dict:
-        """从音频URL提取文本"""
+        """从音频URL或本地文件提取文本
+
+        Args:
+            audio_source: 音频URL或本地文件路径
+            model: 转录模型 ('doubao' 或 'paraformer')
+            language_hints: 语言提示
+            enable_speaker_info: 是否启用说话人识别
+
+        Returns:
+            dict: 转录结果
+        """
         if language_hints is None:
             language_hints = ['zh', 'en']
 
-        if model == 'doubao':
-            result = self._transcribe_audio_doubao([audio_url], language_hints, enable_speaker_info)
-        else:
-            result = self._transcribe_audio_paraformer([audio_url], language_hints, enable_speaker_info)
+        # 检查是否是本地文件
+        audio_url = audio_source
+        oss_info = None
+        oss_uploader = None
 
-        if result:
-            return self._format_result(model, [audio_url], result)
-        return None
+        if os.path.isfile(audio_source):
+            # 本地文件需要上传到OSS
+            oss_uploader = self._get_oss_uploader()
+            if oss_uploader is None:
+                raise RuntimeError("本地文件需要OSS配置，请在config.json中添加oss配置")
+
+            # 上传文件并获取URL
+            oss_info = oss_uploader.upload_file(audio_source, expires_hours=2)
+            audio_url = oss_info['url']
+
+        try:
+            if model == 'doubao':
+                result = self._transcribe_audio_doubao([audio_url], language_hints, enable_speaker_info)
+            else:
+                result = self._transcribe_audio_paraformer([audio_url], language_hints, enable_speaker_info)
+
+            if result:
+                return self._format_result(model, [audio_url], result)
+            return None
+        finally:
+            # 清理OSS上的临时文件
+            if oss_info and oss_info.get('delete_after') and oss_uploader:
+                try:
+                    oss_uploader.delete_file(oss_info['object_key'])
+                except Exception:
+                    pass  # 删除失败不影响结果
 
     def _transcribe_audio_doubao(self, file_urls: List[str],
                                   language_hints: Optional[List[str]] = None,
