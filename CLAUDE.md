@@ -16,6 +16,8 @@ This is a multi-platform video information extractor that combines link parsing 
 Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Video Info → TextExtractor → Transcription
                                                                                     ↓
                                                                             Complete JSON Output
+                                                                                    ↓
+                                                                            MarkdownGenerator → MD Note File
 ```
 
 ### Core Components
@@ -28,7 +30,9 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
   3. Extracts audio URL from video info
   4. Transcribes audio via `TextExtractor`
   5. Post-processes title/tags
+  6. Generates Markdown note via `MarkdownGenerator` (when `-o` flag is used)
 - Tag extraction happens AFTER video parsing to separate `#hashtags` from title
+- MD note generation only happens when output file is specified (`-o` flag)
 
 **modules/douyin_parser.py** - Douyin video metadata extraction
 - Self-contained Playwright-based Douyin parser
@@ -86,6 +90,19 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
   - `_format_result()` - Delegates to model-specific formatters
   - `_add_speaker_label()` - Auto-merges consecutive segments from same speaker
 - Local file workflow: upload to OSS → transcribe → delete from OSS
+
+**modules/md_generator.py** - Markdown note generation
+- Self-contained Markdown generator based on template file
+- `MarkdownGenerator` class - Reads template and fills in video info
+- Key methods:
+  - `_load_template()` - Loads `视频笔记模板.md` and converts Unicode quotes to ASCII
+  - `generate()` - Generates MD file from video info dict
+  - `_format_duration()` - Converts milliseconds to `mm:ss` or `hh:mm:ss`
+  - `_format_timestamp()` - Converts Unix timestamp to `YYYY-MM-DD HH:mm`
+  - `_sanitize_filename()` - Removes illegal characters from title for filename
+- Template placeholders: `"title"`, `"cover_url"`, `"video_url"`, `"audio_url"`, `"tag"`, `"author"`, `"author_id"`, `"duration"`, `"video_id"`, `"create_time"`, `"like_count"`, `"comment_count"`, `"share_count"`, `"collect_count"`, `"text"`, `time` (current time)
+- Output filename: `{title}_笔记.md`
+- Handles null values gracefully (shows "无数据" or "未知")
 
 ## Common Commands
 
@@ -201,6 +218,11 @@ Direct console output shows Chinese as garbled text (GBK encoding issue).
 
 ## Output Structure
 
+When using `-o` flag, two files are generated:
+1. **JSON file** - Complete video info with transcription segments
+2. **MD file** - Human-readable note with formatted tables and content
+
+### JSON Structure
 ```json
 {
   "status": {"success": bool, "error": str, "transcription_error": str},
@@ -213,6 +235,15 @@ Direct console output shows Chinese as garbled text (GBK encoding issue).
   "transcription": {"url": str, "text": str, "segments": [{"text": str, "start": int, "end": int}]}
 }
 ```
+
+### MD Note Structure
+Based on `视频笔记模板.md`, contains:
+- Title heading with video title
+- Cover image
+- Resource links table (video/audio/cover URLs)
+- Basic info table (title, tags, author, duration, video ID, create time)
+- Statistics table (likes, comments, shares, collects) with timestamp
+- Transcription text section
 
 Note: `transcription` is `null` if extraction fails or no audio URL is found.
 

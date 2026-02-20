@@ -7,7 +7,7 @@ import os
 import re
 import sys
 
-from modules import DouyinLinkParser, BilibiliLinkParser, LocalVideoParser, TextExtractor
+from modules import DouyinLinkParser, BilibiliLinkParser, LocalVideoParser, TextExtractor, MarkdownGenerator
 
 
 def detect_platform(url: str) -> str:
@@ -182,6 +182,13 @@ def main():
     # 输出结果
     output_json = json.dumps(result, ensure_ascii=False, indent=2)
     _write_output(output_json, args.output)
+
+    # 生成Markdown笔记（仅在成功且指定了输出文件时）
+    if result.get('status', {}).get('success', False) and args.output:
+        md_generator = MarkdownGenerator()
+        md_path = md_generator.generate(result, os.path.dirname(args.output) or None)
+        if md_path:
+            print(f"笔记已保存到: {md_path}", file=sys.stderr)
 
     success = result.get('status', {}).get('success', False)
     sys.exit(0 if success else 1)

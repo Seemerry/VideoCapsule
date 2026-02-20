@@ -25,6 +25,12 @@
   - 可选说话人识别功能
   - 输出完整文本和时间分段信息（毫秒级精度）
 
+- **Markdown笔记生成**：自动生成可读性强的笔记文件
+  - 基于 `视频笔记模板.md` 模板生成
+  - 包含视频封面、资源链接、基础信息、统计数据
+  - 自动嵌入转录文稿
+  - 文件名格式：`{视频标题}_笔记.md`
+
 ## 项目结构
 
 ```
@@ -35,9 +41,11 @@ DouyinVideoExtractor/
 │   ├── bilibili_parser.py      # Bilibili链接解析（HTTP API）
 │   ├── local_parser.py         # 本地视频解析（ffprobe）
 │   ├── oss_uploader.py         # OSS文件上传模块
-│   └── text_extractor.py       # 文本提取模块（音频转文本）
+│   ├── text_extractor.py       # 文本提取模块（音频转文本）
+│   └── md_generator.py         # Markdown笔记生成模块
 ├── config.json                 # 配置文件（需自行填写，已gitignore）
 ├── config.example.json         # 配置文件示例
+├── 视频笔记模板.md              # Markdown笔记模板
 ├── main.py                     # 主入口
 ├── requirements.txt            # Python依赖
 ├── CLAUDE.md                   # 开发者指南
@@ -129,6 +137,10 @@ python main.py "D:\path\to\video.mp4" -o result.json
 # 仅解析链接/文件，不进行转录
 python main.py "URL" --no-transcribe -o result.json
 ```
+
+**输出文件**：使用 `-o` 参数时，会同时生成两个文件：
+- `result.json` - 完整的视频信息（JSON格式）
+- `视频标题_笔记.md` - 可读性强的Markdown笔记
 
 **重要提示**：
 - Windows 控制台中文会显示为乱码，**建议使用 `-o` 参数保存到文件**
@@ -325,6 +337,28 @@ result = extractor.extract(
 # - url: 音频URL（本地文件会先上传到OSS）
 # - text: 完整文本
 # - segments: 分段信息 [{"text": "...", "start": 0, "end": 2000}]
+```
+
+### Markdown笔记生成模块 (modules/md_generator.py)
+
+封装了Markdown笔记生成功能，基于模板文件生成可读性强的笔记。
+
+```python
+from modules import MarkdownGenerator
+
+generator = MarkdownGenerator()  # 默认使用 ./视频笔记模板.md
+
+# 从视频信息生成Markdown笔记
+md_path = generator.generate(video_info, output_dir='./output')
+# 返回生成的MD文件路径
+
+# video_info 结构与 JSON 输出格式一致
+# 生成的笔记包含:
+# - 视频标题和封面图片
+# - 音视频资源链接表格
+# - 基础信息表格（标题、标签、作者、时长等）
+# - 统计数据表格（点赞、评论、分享、收藏）
+# - 转录文稿（如有）
 ```
 
 ## 技术实现
