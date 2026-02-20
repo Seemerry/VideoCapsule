@@ -424,4 +424,4 @@ md_path = generator.generate(video_info, output_dir='./output')
 
 ## 许可证
 
-本项目仅供学习和研究使用。
+[MIT License](LICENSE)
