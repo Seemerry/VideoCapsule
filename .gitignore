@@ -45,6 +45,7 @@ debug_*.json
 debug_*.html
 
 # 测试输出文件
+test.json
 test_*.json
 test_*.txt
 *_test.json
@@ -54,6 +55,10 @@ output*.json
 *_full.json
 bilibili_*.json
 douyin_*.json
+
+# 生成的笔记和资源文件
+*_笔记.md
+*_assets/
 
 # 日志文件
 *.log

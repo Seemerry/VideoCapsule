@@ -2,10 +2,12 @@
 
 import os
 import re
+import sys
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 from .text_formatter import TextFormatter
+from .frame_extractor import FrameExtractor
 
 
 class MarkdownGenerator:
@@ -74,6 +76,104 @@ class MarkdownGenerator:
         # 限制长度
         return sanitized[:100] if len(sanitized) > 100 else sanitized
 
+    def _insert_frames(self, formatter: 'TextFormatter', formatted_text: str,
+                       segments: List[dict], video_url: str, title: str,
+                       output_dir: str) -> str:
+        """识别关键节点、提取帧图片并插入到格式化文本中
+
+        Args:
+            formatter: TextFormatter 实例
+            formatted_text: 格式化后的文本
+            segments: 转录片段列表
+            video_url: 视频URL或路径
+            title: 视频标题
+            output_dir: 输出目录
+
+        Returns:
+            str: 插入帧图片后的文本，失败返回原文
+        """
+        try:
+            # 1. 识别关键节点
+            key_moments = formatter.identify_key_moments(formatted_text, segments)
+            if not key_moments:
+                return formatted_text
+
+            # 2. 提取帧图片
+            timestamps = [m['timestamp_ms'] for m in key_moments]
+            extractor = FrameExtractor()
+            frames = extractor.extract_frames(video_url, timestamps, output_dir, title)
+            if not frames:
+                return formatted_text
+
+            # 建立 timestamp -> frame 映射
+            frame_map = {f['timestamp_ms']: f for f in frames}
+
+            # 3. 收集需要插入的 (位置, markdown) 对
+            insertions = []
+            for moment in key_moments:
+                ts = moment['timestamp_ms']
+                frame = frame_map.get(ts)
+                if not frame:
+                    continue
+
+                pos = self._find_insertion_point(formatted_text, moment['text'])
+                if pos < 0:
+                    continue
+
+                label = frame['label']
+                rel_path = frame['relative_path']
+                frame_md = f"\n\n![{label}]({rel_path})\n*{label}*\n"
+                insertions.append((pos, frame_md))
+
+            if not insertions:
+                return formatted_text
+
+            # 4. 按位置逆序插入，避免偏移
+            insertions.sort(key=lambda x: x[0], reverse=True)
+            result = formatted_text
+            for pos, md in insertions:
+                result = result[:pos] + md + result[pos:]
+
+            print(f"已插入 {len(insertions)} 个关键帧图片", file=sys.stderr)
+            return result
+
+        except Exception as e:
+            print(f"关键帧插入失败，使用原文: {e}", file=sys.stderr)
+            return formatted_text
+
+    @staticmethod
+    def _find_insertion_point(text: str, segment_text: str) -> int:
+        """在格式化文本中定位片段对应的插入位置
+
+        在找到的文本位置之前的段落边界处插入。
+
+        Args:
+            text: 格式化后的完整文本
+            segment_text: 要定位的片段文本
+
+        Returns:
+            int: 插入位置索引，找不到返回 -1
+        """
+        segment_text = segment_text.strip()
+        if not segment_text:
+            return -1
+
+        # 精确匹配
+        pos = text.find(segment_text)
+
+        # 失败则尝试匹配前20个字符
+        if pos < 0 and len(segment_text) > 20:
+            pos = text.find(segment_text[:20])
+
+        if pos < 0:
+            return -1
+
+        # 回溯到段落起始位置（最近的 \n\n）
+        para_start = text.rfind('\n\n', 0, pos)
+        if para_start >= 0:
+            return para_start
+        return 0
+
     def generate(self, video_info: dict, output_dir: Optional[str] = None,
                  format_text: bool = False, config_path: Optional[str] = None) -> Optional[str]:
         """从视频信息生成Markdown笔记
@@ -130,7 +230,15 @@ class MarkdownGenerator:
                 summary = result['summary']
             if result.get('formatted_text'):
                 text = result['formatted_text']
-            print("文本处理完成", file=__import__('sys').stderr)
+            print("文本处理完成", file=sys.stderr)
+
+            # 提取关键帧并插入到格式化后的文本中
+            segments = transcription.get('segments', []) if transcription else []
+            if segments:
+                text = self._insert_frames(
+                    formatter, text, segments,
+                    urls.get('video_url', ''), title, output_dir or '.'
+                )
 
         # 当前时间（精确到分）
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M')

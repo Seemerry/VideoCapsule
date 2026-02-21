@@ -2,8 +2,9 @@
 
 import json
 import os
+import re
 import requests
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 
 class TextFormatter:
@@ -183,3 +184,104 @@ class TextFormatter:
         result['formatted_text'] = self.format_text(raw_text, title)
 
         return result
+
+    def identify_key_moments(self, formatted_text: str, segments: List[dict],
+                             max_moments: int = 8) -> List[dict]:
+        """识别文稿中的关键节点，返回对应的时间戳
+
+        Args:
+            formatted_text: 格式化后的文本
+            segments: 转录片段列表，每个包含 text, start, end
+            max_moments: 最多返回的关键节点数
+
+        Returns:
+            list: [{'text': str, 'timestamp_ms': int, 'segment_index': int}]
+        """
+        if not self.api_key:
+            return []
+
+        if not segments or not formatted_text:
+            return []
+
+        # 构建带编号的片段列表
+        segment_list = []
+        for i, seg in enumerate(segments):
+            text = seg.get('text', '').strip()
+            if text:
+                segment_list.append(f"[{i}] {text}")
+
+        if not segment_list:
+            return []
+
+        segments_text = '\n'.join(segment_list)
+
+        system_prompt = """你是一个专业的视频内容分析助手。你的任务是从视频转录片段中识别出最重要的关键节点。
+
+请严格遵守以下规则：
+1. 从给定的编号片段列表中选出最关键的节点（不超过指定数量）
+2. 选择标准：重要转折点、核心论点、关键事件、精彩观点
+3. 选出的节点应在整个文本中均匀分布，不要集中在某一段
+4. 只返回一个 JSON 数组，格式为：[{"segment_index": N, "reason": "简短理由"}]
+5. segment_index 必须是片段列表中的编号数字
+6. 不要添加任何解释性文字，只输出 JSON 数组"""
+
+        user_prompt = f"请从以下视频转录片段中选出最多 {max_moments} 个关键节点：\n\n{segments_text}"
+
+        print("正在识别关键节点...", file=__import__('sys').stderr)
+        response = self._call_api(system_prompt, user_prompt)
+        if not response:
+            return []
+
+        # 解析返回的 JSON
+        return self._parse_key_moments_response(response, segments)
+
+    def _parse_key_moments_response(self, response: str, segments: List[dict]) -> List[dict]:
+        """解析 DeepSeek 返回的关键节点 JSON
+
+        Args:
+            response: API 返回的文本
+            segments: 原始转录片段列表
+
+        Returns:
+            list: 解析后的关键节点列表
+        """
+        # 去除 markdown 代码围栏
+        cleaned = response.strip()
+        cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
+        cleaned = re.sub(r'\s*```$', '', cleaned)
+        cleaned = cleaned.strip()
+
+        # 尝试直接解析 JSON
+        try:
+            moments_raw = json.loads(cleaned)
+        except json.JSONDecodeError:
+            # 尝试用正则提取 JSON 数组
+            match = re.search(r'\[.*\]', cleaned, re.DOTALL)
+            if not match:
+                return []
+            try:
+                moments_raw = json.loads(match.group())
+            except json.JSONDecodeError:
+                return []
+
+        if not isinstance(moments_raw, list):
+            return []
+
+        results = []
+        for item in moments_raw:
+            if not isinstance(item, dict):
+                continue
+            idx = item.get('segment_index')
+            if idx is None or not isinstance(idx, int):
+                continue
+            if idx < 0 or idx >= len(segments):
+                continue
+
+            seg = segments[idx]
+            results.append({
+                'text': seg.get('text', ''),
+                'timestamp_ms': seg.get('start', 0),
+                'segment_index': idx,
+            })
+
+        return results

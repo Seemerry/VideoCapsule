@@ -31,11 +31,19 @@
   - 重点语句和关键信息自动加粗
   - 保留原文完整性，不做任何删改
 
+- **关键帧截取**：自动识别文稿重点，截取对应视频画面
+  - 基于 AI 识别转录文本中的关键节点（转折点、核心论点、关键事件）
+  - 使用 ffmpeg 从视频中截取对应时间点的帧图片
+  - 图片自动插入到 Markdown 笔记的对应段落，实现图文并茂
+  - 最多截取 8 个关键帧，均匀分布在整个视频时间线上
+  - 支持远程视频（自动下载）和本地视频
+
 - **Markdown笔记生成**：自动生成结构化的笔记文件
   - 基于 `视频笔记模板.md` 模板生成
   - 包含视频封面、资源链接、基础信息、统计数据
-  - 智能摘要 + 格式化原文
+  - 智能摘要 + 格式化原文 + 关键帧图片
   - 文件名格式：`{视频标题}_笔记.md`
+  - 关键帧图片保存在 `{视频标题}_assets/` 文件夹中
 
 ## 项目结构
 
@@ -49,6 +57,7 @@ DouyinVideoExtractor/
 │   ├── oss_uploader.py         # OSS文件上传模块
 │   ├── text_extractor.py       # 文本提取模块（音频转文本）
 │   ├── text_formatter.py       # 文本格式化模块（DeepSeek API）
+│   ├── frame_extractor.py      # 关键帧提取模块（ffmpeg）
 │   └── md_generator.py         # Markdown笔记生成模块
 ├── config.json                 # 配置文件（需自行填写，已gitignore）
 ├── config.example.json         # 配置文件示例
@@ -162,6 +171,7 @@ python main.py "URL" --no-transcribe -o result.json
 **输出文件**：使用 `-o` 参数时，会同时生成两个文件：
 - `result.json` - 完整的视频信息（JSON格式）
 - `视频标题_笔记.md` - 可读性强的Markdown笔记
+- `视频标题_assets/` - 关键帧图片文件夹（使用 `--format-text` 时生成）
 
 **重要提示**：
 - Windows 控制台中文会显示为乱码，**建议使用 `-o` 参数保存到文件**
@@ -172,7 +182,7 @@ python main.py "URL" --no-transcribe -o result.json
 ### 高级选项
 
 ```bash
-# 启用智能文稿处理（摘要 + 格式化）
+# 启用智能文稿处理（摘要 + 格式化 + 关键帧截取）
 python main.py "URL" --format-text -o result.json
 
 # 使用Paraformer模型进行转录
@@ -195,7 +205,7 @@ python main.py "URL" --config /path/to/config.json -o result.json
 | `-c, --config` | 配置文件路径 | `./config.json`（默认） |
 | `-o, --output` | 输出文件路径 | `result.json` |
 | `--no-transcribe` | 仅解析链接/文件，不进行转录 | 添加此标志即可 |
-| `--format-text` | 使用 DeepSeek API 优化文稿（摘要 + 格式化） | 添加此标志即可 |
+| `--format-text` | 使用 DeepSeek API 优化文稿（摘要 + 格式化 + 关键帧） | 添加此标志即可 |
 
 ## 输出格式
 
@@ -376,7 +386,7 @@ generator = MarkdownGenerator()  # 默认使用 ./视频笔记模板.md
 # 从视频信息生成Markdown笔记（不格式化）
 md_path = generator.generate(video_info, output_dir='./output')
 
-# 启用智能文稿处理（摘要 + 格式化原文）
+# 启用智能文稿处理（摘要 + 格式化原文 + 关键帧截取）
 md_path = generator.generate(
     video_info,
     output_dir='./output',
@@ -393,6 +403,7 @@ md_path = generator.generate(
 # - 统计数据表格（点赞、评论、分享、收藏）
 # - 智能摘要（format_text=True 时）
 # - 格式化转录文稿（format_text=True 时）
+# - 关键帧图片插入到文稿对应位置（format_text=True 时）
 ```
 
 ### 文本格式化模块 (modules/text_formatter.py)
@@ -427,6 +438,7 @@ result = formatter.process_text(raw_text, title="视频标题")
 | 本地文件解析 | ffprobe | 获取视频时长等元数据，转录需上传 OSS |
 | 音频转录 | 豆包 / Paraformer | 支持两种语音识别模型 |
 | 文本格式化 | DeepSeek API | 摘要生成和原文排版优化 |
+| 关键帧截取 | DeepSeek API + ffmpeg | AI 识别关键节点 + ffmpeg 截帧 |
 
 ## 注意事项
 
@@ -449,14 +461,20 @@ result = formatter.process_text(raw_text, title="视频标题")
 
 5. **DeepSeek API 费用**
    - 使用 `--format-text` 参数会调用 DeepSeek API
-   - 费用按 token 计费，摘要和格式化各调用一次 API
+   - 费用按 token 计费，摘要、格式化和关键节点识别各调用一次 API（共 3 次）
    - 建议仅在需要时启用此功能
 
-6. **Bilibili 音视频格式**
+6. **关键帧截取**
+   - 需要安装 ffmpeg 并加入 PATH
+   - 远程视频会先下载到临时文件再截帧，截帧完成后自动清理
+   - 帧图片保存在 `{视频标题}_assets/` 文件夹中
+   - 如果截帧失败（ffmpeg 不可用、下载失败等），仍会正常生成笔记，只是没有图片
+
+7. **Bilibili 音视频格式**
    - Bilibili 使用 DASH 格式，视频和音频分离（.m4s 文件）
    - `video_url` 和 `audio_url` 分别对应独立的流
 
-7. **本地视频转录**
+8. **本地视频转录**
    - 需要配置阿里云 OSS（用于临时上传文件）
    - 需要安装 ffmpeg（包含 ffprobe）以获取视频时长
    - 转录完成后会自动删除 OSS 上的临时文件
