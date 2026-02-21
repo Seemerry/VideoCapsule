@@ -9,6 +9,11 @@
     "submit_endpoint": "https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit",
     "query_endpoint": "https://openspeech.bytedance.com/api/v3/auc/bigmodel/query"
   },
+  "deepseek": {
+    "api_key": "your_deepseek_api_key_here",
+    "api_base": "https://api.deepseek.com",
+    "model": "deepseek-reasoner"
+  },
   "oss": {
     "access_key_id": "your_oss_access_key_id_here",
     "access_key_secret": "your_oss_access_key_secret_here",

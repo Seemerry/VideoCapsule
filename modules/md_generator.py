@@ -5,6 +5,8 @@ import re
 from datetime import datetime
 from typing import Optional
 
+from .text_formatter import TextFormatter
+
 
 class MarkdownGenerator:
     """Markdown笔记生成器"""
@@ -72,12 +74,15 @@ class MarkdownGenerator:
         # 限制长度
         return sanitized[:100] if len(sanitized) > 100 else sanitized
 
-    def generate(self, video_info: dict, output_dir: Optional[str] = None) -> Optional[str]:
+    def generate(self, video_info: dict, output_dir: Optional[str] = None,
+                 format_text: bool = False, config_path: Optional[str] = None) -> Optional[str]:
         """从视频信息生成Markdown笔记
 
         Args:
             video_info: 视频信息JSON字典
             output_dir: 输出目录，默认与JSON文件同目录
+            format_text: 是否使用 DeepSeek API 格式化转录文本
+            config_path: 配置文件路径
 
         Returns:
             str: 生成的Markdown文件路径，失败返回None
@@ -111,7 +116,21 @@ class MarkdownGenerator:
         collect_count = statistics.get('collect_count')
 
         # 转录文本
-        text = transcription.get('text', '无转录内容') if transcription else '无转录内容'
+        raw_text = transcription.get('text', '无转录内容') if transcription else '无转录内容'
+
+        # 初始化摘要和文本
+        summary = '无摘要'
+        text = raw_text
+
+        # 如果启用格式化，使用 DeepSeek API 处理文本（生成摘要 + 格式化原文）
+        if format_text and raw_text != '无转录内容':
+            formatter = TextFormatter(config_path)
+            result = formatter.process_text(raw_text, title)
+            if result.get('summary'):
+                summary = result['summary']
+            if result.get('formatted_text'):
+                text = result['formatted_text']
+            print("文本处理完成", file=__import__('sys').stderr)
 
         # 当前时间（精确到分）
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -133,6 +152,7 @@ class MarkdownGenerator:
         md_content = md_content.replace('"comment_count"', self._format_number(comment_count))
         md_content = md_content.replace('"share_count"', self._format_number(share_count))
         md_content = md_content.replace('"collect_count"', self._format_number(collect_count))
+        md_content = md_content.replace('"summary"', summary)
         md_content = md_content.replace('"text"', text)
 
         # 生成文件名

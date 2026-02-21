@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a multi-platform video information extractor that combines link parsing and audio transcription. Given a Douyin URL, Bilibili URL, or local video file, it extracts comprehensive video metadata and transcribes the audio content using speech-to-text APIs.
+This is a multi-platform video information extractor that combines link parsing and audio transcription. Given a Douyin URL, Bilibili URL, or local video file, it extracts comprehensive video metadata, transcribes the audio content using speech-to-text APIs, and generates Markdown notes with AI-powered summaries.
 
 **Note**: This project is fully self-contained with no external project dependencies.
 
@@ -16,6 +16,8 @@ This is a multi-platform video information extractor that combines link parsing 
 Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Video Info → TextExtractor → Transcription
                                                                                     ↓
                                                                             Complete JSON Output
+                                                                                    ↓
+                                                                    TextFormatter (optional, --format-text)
                                                                                     ↓
                                                                             MarkdownGenerator → MD Note File
 ```
@@ -31,6 +33,7 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
   4. Transcribes audio via `TextExtractor`
   5. Post-processes title/tags
   6. Generates Markdown note via `MarkdownGenerator` (when `-o` flag is used)
+     - If `--format-text` is enabled, calls `TextFormatter.process_text()` for summary + formatting
 - Tag extraction happens AFTER video parsing to separate `#hashtags` from title
 - MD note generation only happens when output file is specified (`-o` flag)
 
@@ -97,12 +100,30 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
 - Key methods:
   - `_load_template()` - Loads `视频笔记模板.md` and converts Unicode quotes to ASCII
   - `generate()` - Generates MD file from video info dict
+    - Parameters: `video_info`, `output_dir`, `format_text`, `config_path`
+    - If `format_text=True`, calls `TextFormatter.process_text()` before generating
   - `_format_duration()` - Converts milliseconds to `mm:ss` or `hh:mm:ss`
   - `_format_timestamp()` - Converts Unix timestamp to `YYYY-MM-DD HH:mm`
   - `_sanitize_filename()` - Removes illegal characters from title for filename
-- Template placeholders: `"title"`, `"cover_url"`, `"video_url"`, `"audio_url"`, `"tag"`, `"author"`, `"author_id"`, `"duration"`, `"video_id"`, `"create_time"`, `"like_count"`, `"comment_count"`, `"share_count"`, `"collect_count"`, `"text"`, `time` (current time)
+- Template placeholders: `"title"`, `"cover_url"`, `"video_url"`, `"audio_url"`, `"tag"`, `"author"`, `"author_id"`, `"duration"`, `"video_id"`, `"create_time"`, `"like_count"`, `"comment_count"`, `"share_count"`, `"collect_count"`, `"summary"`, `"text"`, `time` (current time)
 - Output filename: `{title}_笔记.md`
-- Handles null values gracefully (shows "无数据" or "未知")
+- Handles null values gracefully (shows "无数据", "未知", or "无摘要")
+
+**modules/text_formatter.py** - Text formatting and summary generation
+- Self-contained text processor using DeepSeek API
+- `TextFormatter` class - Handles API calls for text optimization
+- Configuration: Reads from `config.json` → `deepseek` section
+- Key methods:
+  - `_call_api()` - Generic API call handler with error handling
+  - `generate_summary()` - Generates 200-400 char summary with key points bolded
+  - `format_text()` - Formats raw transcription with paragraphs and emphasis
+  - `process_text()` - Combined: returns `{'summary': str, 'formatted_text': str}`
+- API details:
+  - Endpoint: `https://api.deepseek.com/chat/completions`
+  - Model: `deepseek-reasoner` (configurable)
+  - Timeout: 120 seconds
+- Summary rules: Extract core themes, bold key entities, no title prefix
+- Format rules: Never modify content, add paragraphs, bold key statements
 
 ## Common Commands
 
@@ -116,6 +137,7 @@ playwright install chromium
 - Copy `config.example.json` to `config.json`
 - Add API keys for DashScope and Doubao (required for transcription)
 - Add OSS configuration (required for local video transcription)
+- Add DeepSeek configuration (required for `--format-text` feature)
 
 ### Running
 ```bash
@@ -134,6 +156,9 @@ python main.py "D:\path\to\video.mp4" -o result.json
 # Parse only (no transcription)
 python main.py "URL_OR_FILE" --no-transcribe -o result.json
 
+# With AI-powered text formatting (summary + formatted transcript)
+python main.py "URL_OR_FILE" --format-text -o result.json
+
 # With speaker detection
 python main.py "URL_OR_FILE" --speaker-info -o result.json
 
@@ -148,6 +173,9 @@ python main.py "https://v.douyin.com/OQsck5Woryw/" -o test.json
 
 # Quick test with Bilibili URL
 python main.py "https://www.bilibili.com/video/BV1MbFXz5Esa/" -o test.json
+
+# Quick test with text formatting (summary + formatted transcript)
+python main.py "https://www.bilibili.com/video/BV1MbFXz5Esa/" --format-text -o test.json
 
 # Quick test with local video (parse only)
 python main.py "D:\path\to\video.mp4" --no-transcribe -o test.json
@@ -243,9 +271,12 @@ Based on `视频笔记模板.md`, contains:
 - Resource links table (video/audio/cover URLs)
 - Basic info table (title, tags, author, duration, video ID, create time)
 - Statistics table (likes, comments, shares, collects) with timestamp
-- Transcription text section
+- Transcription section with:
+  - **摘要** (Summary): AI-generated summary with bolded key points (when `--format-text` enabled)
+  - **原文** (Original text): Formatted transcript with paragraphs and emphasis (when `--format-text` enabled)
 
 Note: `transcription` is `null` if extraction fails or no audio URL is found.
+When `--format-text` is not used, summary shows "无摘要" and text shows raw transcription.
 
 ## Bilibili-Specific Notes
 
@@ -291,3 +322,28 @@ Local video transcription requires Alibaba Cloud OSS:
 - Title is extracted from filename (cleaned of common patterns like "(Av123,P1)")
 - `video_url` and `audio_url` both point to the local file path
 - Transcription URL is the temporary OSS URL (valid for 2 hours, auto-deleted after use)
+
+## DeepSeek Configuration
+
+### Text Formatting Feature
+The `--format-text` flag enables AI-powered text processing:
+1. **Summary Generation** - Extracts core themes and key points
+2. **Text Formatting** - Adds paragraphs and bold emphasis without modifying content
+
+### Configuration
+Add to `config.json`:
+```json
+{
+  "deepseek": {
+    "api_key": "your_deepseek_api_key",
+    "api_base": "https://api.deepseek.com",
+    "model": "deepseek-reasoner"
+  }
+}
+```
+
+### API Usage Notes
+- Each `--format-text` call makes 2 API requests (summary + formatting)
+- Uses `deepseek-reasoner` model by default
+- 120 second timeout per request
+- If formatting fails, falls back to raw transcription text

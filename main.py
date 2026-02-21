@@ -120,6 +120,8 @@ def main():
                         help='输出文件路径（默认: 标准输出）')
     arg_parser.add_argument('--no-transcribe', action='store_true',
                         help='仅解析链接，不进行音频转录')
+    arg_parser.add_argument('--format-text', action='store_true',
+                        help='使用 DeepSeek API 对转录文本进行排版优化')
 
     args = arg_parser.parse_args()
 
@@ -186,7 +188,12 @@ def main():
     # 生成Markdown笔记（仅在成功且指定了输出文件时）
     if result.get('status', {}).get('success', False) and args.output:
         md_generator = MarkdownGenerator()
-        md_path = md_generator.generate(result, os.path.dirname(args.output) or None)
+        md_path = md_generator.generate(
+            result,
+            os.path.dirname(args.output) or None,
+            format_text=args.format_text,
+            config_path=args.config
+        )
         if md_path:
             print(f"笔记已保存到: {md_path}", file=sys.stderr)
 

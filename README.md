@@ -1,6 +1,6 @@
 # 视频信息提取器
 
-综合了抖音、Bilibili 链接解析和本地视频处理的音频转文本工具。输入一个视频链接或本地视频文件，即可获取完整的视频信息和文本转录结果。
+综合了抖音、Bilibili 链接解析和本地视频处理的音频转文本工具。输入一个视频链接或本地视频文件，即可获取完整的视频信息和文本转录结果，并自动生成包含摘要的 Markdown 笔记。
 
 ## 功能特性
 
@@ -25,10 +25,16 @@
   - 可选说话人识别功能
   - 输出完整文本和时间分段信息（毫秒级精度）
 
-- **Markdown笔记生成**：自动生成可读性强的笔记文件
+- **智能文稿处理**：使用 DeepSeek API 优化转录文本
+  - 自动生成内容摘要，快速了解视频核心内容
+  - 对原文进行排版优化，提升可读性
+  - 重点语句和关键信息自动加粗
+  - 保留原文完整性，不做任何删改
+
+- **Markdown笔记生成**：自动生成结构化的笔记文件
   - 基于 `视频笔记模板.md` 模板生成
   - 包含视频封面、资源链接、基础信息、统计数据
-  - 自动嵌入转录文稿
+  - 智能摘要 + 格式化原文
   - 文件名格式：`{视频标题}_笔记.md`
 
 ## 项目结构
@@ -42,6 +48,7 @@ DouyinVideoExtractor/
 │   ├── local_parser.py         # 本地视频解析（ffprobe）
 │   ├── oss_uploader.py         # OSS文件上传模块
 │   ├── text_extractor.py       # 文本提取模块（音频转文本）
+│   ├── text_formatter.py       # 文本格式化模块（DeepSeek API）
 │   └── md_generator.py         # Markdown笔记生成模块
 ├── config.json                 # 配置文件（需自行填写，已gitignore）
 ├── config.example.json         # 配置文件示例
@@ -101,6 +108,11 @@ cp config.example.json config.json
     "submit_endpoint": "https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit",
     "query_endpoint": "https://openspeech.bytedance.com/api/v3/auc/bigmodel/query"
   },
+  "deepseek": {
+    "api_key": "your_deepseek_api_key_here",
+    "api_base": "https://api.deepseek.com",
+    "model": "deepseek-reasoner"
+  },
   "oss": {
     "access_key_id": "your_oss_access_key_id_here",
     "access_key_secret": "your_oss_access_key_secret_here",
@@ -109,6 +121,15 @@ cp config.example.json config.json
   }
 }
 ```
+
+**配置说明**：
+
+| 配置项 | 用途 | 必需 |
+|--------|------|------|
+| `dashscope` | Paraformer 转录模型 | 使用 Paraformer 时需要 |
+| `doubao` | 豆包转录模型（默认） | 是 |
+| `deepseek` | 文本格式化和摘要生成 | 使用 `--format-text` 时需要 |
+| `oss` | 本地视频转录 | 处理本地视频时需要 |
 
 **OSS 配置说明**（本地视频转录需要）：
 - 需要阿里云 OSS Bucket
@@ -151,6 +172,9 @@ python main.py "URL" --no-transcribe -o result.json
 ### 高级选项
 
 ```bash
+# 启用智能文稿处理（摘要 + 格式化）
+python main.py "URL" --format-text -o result.json
+
 # 使用Paraformer模型进行转录
 python main.py "URL" --model paraformer -o result.json
 
@@ -171,6 +195,7 @@ python main.py "URL" --config /path/to/config.json -o result.json
 | `-c, --config` | 配置文件路径 | `./config.json`（默认） |
 | `-o, --output` | 输出文件路径 | `result.json` |
 | `--no-transcribe` | 仅解析链接/文件，不进行转录 | 添加此标志即可 |
+| `--format-text` | 使用 DeepSeek API 优化文稿（摘要 + 格式化） | 添加此标志即可 |
 
 ## 输出格式
 
@@ -348,8 +373,16 @@ from modules import MarkdownGenerator
 
 generator = MarkdownGenerator()  # 默认使用 ./视频笔记模板.md
 
-# 从视频信息生成Markdown笔记
+# 从视频信息生成Markdown笔记（不格式化）
 md_path = generator.generate(video_info, output_dir='./output')
+
+# 启用智能文稿处理（摘要 + 格式化原文）
+md_path = generator.generate(
+    video_info,
+    output_dir='./output',
+    format_text=True,      # 启用 DeepSeek API 处理
+    config_path='./config.json'
+)
 # 返回生成的MD文件路径
 
 # video_info 结构与 JSON 输出格式一致
@@ -358,16 +391,42 @@ md_path = generator.generate(video_info, output_dir='./output')
 # - 音视频资源链接表格
 # - 基础信息表格（标题、标签、作者、时长等）
 # - 统计数据表格（点赞、评论、分享、收藏）
-# - 转录文稿（如有）
+# - 智能摘要（format_text=True 时）
+# - 格式化转录文稿（format_text=True 时）
+```
+
+### 文本格式化模块 (modules/text_formatter.py)
+
+封装了使用 DeepSeek API 进行文本格式化和摘要生成的功能。
+
+```python
+from modules import TextFormatter
+
+formatter = TextFormatter()  # 默认从 ./config.json 读取配置
+
+# 仅生成摘要
+summary = formatter.generate_summary(raw_text, title="视频标题")
+
+# 仅格式化原文
+formatted = formatter.format_text(raw_text, title="视频标题")
+
+# 同时生成摘要和格式化原文
+result = formatter.process_text(raw_text, title="视频标题")
+# result = {
+#     'summary': '生成的摘要内容...',
+#     'formatted_text': '格式化后的原文...'
+# }
 ```
 
 ## 技术实现
 
-| 平台 | 解析方式 | 说明 |
+| 功能 | 实现方式 | 说明 |
 |------|---------|------|
-| 抖音 | Playwright | 浏览器自动化，捕获 API 响应 |
-| Bilibili | HTTP API | 直接调用公开 API，速度快 |
-| 本地文件 | ffprobe | 获取视频时长等元数据，转录需上传 OSS |
+| 抖音解析 | Playwright | 浏览器自动化，捕获 API 响应 |
+| Bilibili 解析 | HTTP API | 直接调用公开 API，速度快 |
+| 本地文件解析 | ffprobe | 获取视频时长等元数据，转录需上传 OSS |
+| 音频转录 | 豆包 / Paraformer | 支持两种语音识别模型 |
+| 文本格式化 | DeepSeek API | 摘要生成和原文排版优化 |
 
 ## 注意事项
 
@@ -388,11 +447,16 @@ md_path = generator.generate(video_info, output_dir='./output')
    - DashScope 和豆包 API 调用可能产生费用
    - 长音频（10分钟以上）可能需要较长的转录时间
 
-5. **Bilibili 音视频格式**
+5. **DeepSeek API 费用**
+   - 使用 `--format-text` 参数会调用 DeepSeek API
+   - 费用按 token 计费，摘要和格式化各调用一次 API
+   - 建议仅在需要时启用此功能
+
+6. **Bilibili 音视频格式**
    - Bilibili 使用 DASH 格式，视频和音频分离（.m4s 文件）
    - `video_url` 和 `audio_url` 分别对应独立的流
 
-6. **本地视频转录**
+7. **本地视频转录**
    - 需要配置阿里云 OSS（用于临时上传文件）
    - 需要安装 ffmpeg（包含 ffprobe）以获取视频时长
    - 转录完成后会自动删除 OSS 上的临时文件
@@ -411,6 +475,18 @@ md_path = generator.generate(video_info, output_dir='./output')
 2. 网络连接是否正常
 3. 音频 URL 是否有效
 即使失败，视频信息仍会返回到 `transcription_error` 字段中。
+
+### Q: 使用 --format-text 时提示"未配置 DeepSeek API Key"？
+**A**: 需要在 `config.json` 中添加 DeepSeek 配置：
+```json
+{
+  "deepseek": {
+    "api_key": "your_deepseek_api_key_here",
+    "api_base": "https://api.deepseek.com",
+    "model": "deepseek-reasoner"
+  }
+}
+```
 
 ### Q: Bilibili 视频的 video_url 是 m4s 格式？
 **A**: Bilibili 使用 DASH 流媒体格式，视频和音频是分离的。如果需要合并格式，可以使用 FFmpeg 工具合并 video.m4s 和 audio.m4s。
