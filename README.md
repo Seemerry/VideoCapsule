@@ -23,6 +23,7 @@
   - 支持豆包录音识别2.0模型（默认）
   - 支持阿里云Paraformer-v2模型
   - 可选说话人识别功能
+  - 自动处理受限音频URL（Bilibili/抖音平台的音频链接需特殊请求头才能下载）
   - 输出完整文本和时间分段信息（毫秒级精度）
 
 - **智能文稿处理**：使用 DeepSeek API 优化转录文本
@@ -146,9 +147,9 @@ cp config.example.json config.json
 | `dashscope` | Paraformer 转录模型 | 使用 Paraformer 时需要 |
 | `doubao` | 豆包转录模型（默认） | 是 |
 | `deepseek` | 文本格式化和摘要生成 | 使用 `--format-text` 时需要 |
-| `oss` | 本地视频转录 | 处理本地视频时需要 |
+| `oss` | 本地视频转录及受限音频URL转录 | 处理本地视频或受限平台URL时需要 |
 
-**OSS 配置说明**（本地视频转录需要）：
+**OSS 配置说明**（本地视频转录及受限URL转录需要）：
 - 需要阿里云 OSS Bucket
 - AccessKey 需要有 `PutObject`、`GetObject`、`DeleteObject` 权限
 - 转录完成后会自动删除临时文件
@@ -359,7 +360,7 @@ if parser.is_local_file("D:\\video.mp4"):
 
 ### 文本提取模块 (modules/text_extractor.py)
 
-封装了音频转文本功能，支持 URL 和本地文件。
+封装了音频转文本功能，支持 URL、本地文件和受限平台音频URL。
 
 ```python
 from modules import TextExtractor
@@ -379,8 +380,16 @@ result = extractor.extract(
     model='doubao'
 )
 
+# 受限平台URL也能自动处理（需要配置 OSS）
+# Bilibili/抖音的音频URL需要特殊请求头才能下载，
+# 程序会自动检测并通过 下载→上传OSS→转录 的方式处理
+result = extractor.extract(
+    "https://upos-sz-mirrorali.bilivideo.com/...",
+    model='doubao'
+)
+
 # result 包含:
-# - url: 音频URL（本地文件会先上传到OSS）
+# - url: 音频URL（本地文件/受限URL会先上传到OSS）
 # - text: 完整文本
 # - segments: 分段信息 [{"text": "...", "start": 0, "end": 2000}]
 ```
@@ -480,7 +489,7 @@ python regenerate_mindmap.py ./output/视频标题_assets/mindmap.md
 | 抖音解析 | Playwright | 浏览器自动化，捕获 API 响应 |
 | Bilibili 解析 | HTTP API | 直接调用公开 API，速度快 |
 | 本地文件解析 | ffprobe | 获取视频时长等元数据，转录需上传 OSS |
-| 音频转录 | 豆包 / Paraformer | 支持两种语音识别模型 |
+| 音频转录 | 豆包 / Paraformer | 支持两种语音识别模型，自动处理受限平台URL |
 | 文本格式化 | DeepSeek API | 摘要生成和原文排版优化 |
 | 关键帧截取 | DeepSeek API + ffmpeg | AI 识别关键节点 + ffmpeg 截帧 |
 | 思维导图 | DeepSeek API + Markmap.js + Playwright | AI 生成结构化 Markdown + 渲染为 PNG |
@@ -529,6 +538,12 @@ python regenerate_mindmap.py ./output/视频标题_assets/mindmap.md
    - 需要配置阿里云 OSS（用于临时上传文件）
    - 需要安装 ffmpeg（包含 ffprobe）以获取视频时长
    - 转录完成后会自动删除 OSS 上的临时文件
+
+10. **受限音频URL处理**
+   - Bilibili 和抖音的音频URL需要特殊请求头（Referer 等）才能下载
+   - 转录服务无法直接访问这些受限URL，程序会自动检测并处理
+   - 处理流程：下载音频到本地临时文件 → 上传到 OSS → 转录 → 自动清理临时文件和 OSS 文件
+   - 需要配置阿里云 OSS（同本地视频转录）
 
 ## 常见问题
 

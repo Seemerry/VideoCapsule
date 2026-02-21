@@ -50,12 +50,13 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
   - `extract_url()` - Extracts clean URL from share text
   - `parse()` - Returns hierarchical JSON with video info
   - `parse_title_and_tag()` - Separates hashtags from title using regex
-- Captures API responses via Playwright route handling
+- Captures API responses from `/aweme/v1/web/aweme/detail` and `/aweme/v1/web/aweme/detailinfo` endpoints via Playwright route handling
 - Extracts: video URL, audio URL, cover, title, author, statistics, etc.
 
 **modules/bilibili_parser.py** - Bilibili video metadata extraction
 - HTTP API-based parser (no browser automation needed)
-- `BilibiliLinkParser` class - Same interface as DouyinLinkParser
+- Uses `_BilibiliParserCore` class for all parsing logic
+- `BilibiliLinkParser` class - Public interface (same as DouyinLinkParser)
 - Key methods:
   - `extract_url()` - Extracts clean URL from share text
   - `parse()` - Returns hierarchical JSON with video info
@@ -68,7 +69,8 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
 
 **modules/local_parser.py** - Local video file metadata extraction
 - Self-contained local file parser using ffprobe
-- `LocalVideoParser` class - Same interface as other parsers
+- Uses `_LocalParserCore` class for all parsing logic
+- `LocalVideoParser` class - Public interface (same as other parsers)
 - Supported formats: mp4, avi, mov, mkv, flv, wmv, webm, m4v
 - Key methods:
   - `extract_url()` - Returns the file path if valid
@@ -90,14 +92,20 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
 **modules/text_extractor.py** - Audio transcription
 - Self-contained audio-to-text functionality
 - Supports two models: `doubao` (default) and `paraformer`
-- Supports both URLs and local files (local files are uploaded to OSS first)
+- Supports URLs, local files, and restricted platform URLs (Bilibili/Douyin)
 - Key architecture:
   - `_get_oss_uploader()` - Lazy-loads OSS uploader for local files
+  - `_RESTRICTED_PATTERNS` - Defines domain patterns and required HTTP headers for Bilibili/Douyin audio URLs
+  - `_detect_restricted_url(url)` - Checks if URL belongs to a restricted platform, returns required headers or None
+  - `_download_to_temp(url, headers)` - Downloads restricted URL to local temp file using platform-specific headers
   - `_transcribe_audio_doubao()` - Two-phase: submit → poll (60 retries, 2s interval)
   - `_transcribe_audio_paraformer()` - Uses DashScope SDK
   - `_format_result()` - Delegates to model-specific formatters
   - `_add_speaker_label()` - Auto-merges consecutive segments from same speaker
-- Local file workflow: upload to OSS → transcribe → delete from OSS
+- Three transcription paths in `extract()`:
+  1. **Local file**: upload to OSS → transcribe → delete from OSS
+  2. **Restricted remote URL** (Bilibili/Douyin): download with platform headers → upload to OSS → transcribe → delete from OSS → delete temp file
+  3. **Normal remote URL**: pass URL directly to transcription API
 
 **modules/md_generator.py** - Markdown note generation
 - Self-contained Markdown generator based on template file
@@ -162,7 +170,8 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
     6. Cleans up temp download files
   - `_download_video(url, platform)` - Downloads remote video
     - Bilibili: includes Referer header, saves as `.m4s`
-    - Douyin/other: standard HTTP GET, saves as `.mp4`
+    - Douyin: includes Referer header (`https://www.douyin.com/`), saves as `.mp4`
+    - Other: standard HTTP GET, saves as `.mp4`
   - `_extract_single_frame(video_path, timestamp_ms, output_path)` - ffmpeg call
     - Command: `ffmpeg -ss {seconds} -i {video_path} -vframes 1 -q:v 2 -y {output_path}`
     - `-ss` before `-i` for fast seek
@@ -300,7 +309,7 @@ Tries `audio_url` first, falls back to `video_url` if missing.
 
 **Douyin Parser:**
 - Uses Playwright async API for browser automation
-- Captures API responses from `/aweme/v1/web/aweme/detail` endpoints
+- Captures API responses from `/aweme/v1/web/aweme/detail` and `/aweme/v1/web/aweme/detailinfo` endpoints
 - Debug mode available via `DOUYIN_DEBUG=1` environment variable
 
 **Bilibili Parser:**
