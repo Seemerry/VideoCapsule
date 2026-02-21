@@ -18,9 +18,10 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
                                                                             Complete JSON Output
                                                                                     ↓
                                                                     TextFormatter (optional, --format-text)
+                                                                        ↓ process_text() → summary + formatted_text
+                                                                        ↓ identify_key_moments() → FrameExtractor.extract_frames()
+                                                                        ↓ generate_mindmap_markdown() → MindMapGenerator.generate()
                                                                                     ↓
-                                                                    FrameExtractor (optional, --format-text)
-                                                                        ↓ identify_key_moments() → extract_frames()
                                                                             MarkdownGenerator → MD Note File + assets/
 ```
 
@@ -37,6 +38,7 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
   6. Generates Markdown note via `MarkdownGenerator` (when `-o` flag is used)
      - If `--format-text` is enabled, calls `TextFormatter.process_text()` for summary + formatting
      - If `--format-text` is enabled and segments exist, calls `TextFormatter.identify_key_moments()` + `FrameExtractor.extract_frames()` to insert keyframe images into the transcript
+     - If `--format-text` is enabled, calls `TextFormatter.generate_mindmap_markdown()` + `MindMapGenerator.generate()` to create mindmap PNG and embed in note
 - Tag extraction happens AFTER video parsing to separate `#hashtags` from title
 - MD note generation only happens when output file is specified (`-o` flag)
 
@@ -106,6 +108,7 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
     - Parameters: `video_info`, `output_dir`, `format_text`, `config_path`
     - If `format_text=True`, calls `TextFormatter.process_text()` before generating
     - If `format_text=True` and segments exist, calls `_insert_frames()` for keyframe images
+    - If `format_text=True`, calls `TextFormatter.generate_mindmap_markdown()` + `MindMapGenerator.generate()` for mindmap
   - `_format_duration()` - Converts milliseconds to `mm:ss` or `hh:mm:ss`
   - `_format_timestamp()` - Converts Unix timestamp to `YYYY-MM-DD HH:mm`
   - `_sanitize_filename()` - Removes illegal characters from title for filename
@@ -116,7 +119,7 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
     4. Inserts frame Markdown in reverse order to avoid position drift
     5. Entire flow is try/except wrapped — failures return original text
   - `_find_insertion_point(text, segment_text)` - Locates segment text in formatted output, backtracks to nearest paragraph boundary (`\n\n`)
-- Template placeholders: `"title"`, `"cover_url"`, `"video_url"`, `"audio_url"`, `"tag"`, `"author"`, `"author_id"`, `"duration"`, `"video_id"`, `"create_time"`, `"like_count"`, `"comment_count"`, `"share_count"`, `"collect_count"`, `"summary"`, `"text"`, `time` (current time)
+- Template placeholders: `"title"`, `"cover_url"`, `"video_url"`, `"audio_url"`, `"tag"`, `"author"`, `"author_id"`, `"duration"`, `"video_id"`, `"create_time"`, `"like_count"`, `"comment_count"`, `"share_count"`, `"collect_count"`, `"summary"`, `"text"`, `"mindmap"`, `time` (current time)
 - Output filename: `{title}_笔记.md`
 - Handles null values gracefully (shows "无数据", "未知", or "无摘要")
 
@@ -129,6 +132,11 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
   - `generate_summary()` - Generates 200-400 char summary with key points bolded
   - `format_text()` - Formats raw transcription with paragraphs and emphasis
   - `process_text()` - Combined: returns `{'summary': str, 'formatted_text': str}`
+  - `generate_mindmap_markdown(raw_text, title=None)` - Generates hierarchical Markdown structure for mindmap
+    - Calls DeepSeek API to extract core topics and key branches from transcription
+    - Output format: `#` headings (up to 4 levels) mixed with `-` list items
+    - Each node text kept concise (≤15 chars)
+    - Returns Markdown string, or None on failure
   - `identify_key_moments(formatted_text, segments, max_moments=8)` - Identifies key moments in transcript
     - Sends numbered segment list to DeepSeek API
     - Asks API to select up to N key moments (turning points, core arguments, key events)
@@ -165,6 +173,37 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
 - Requirements: ffmpeg must be installed and available in PATH
 - Graceful degradation: all failures return empty list, never raises
 
+**modules/mindmap_generator.py** - Mindmap rendering (Markmap.js + Playwright)
+- Self-contained mindmap generator that converts Markdown to PNG
+- `MindMapGenerator` class - Renders hierarchical Markdown into a visual mindmap image
+- Key methods:
+  - `generate(mindmap_md, output_dir, title)` - Main entry point
+    1. Creates `{sanitized_title}_assets/` subfolder
+    2. Saves Markdown source to `mindmap.md` (for user editing)
+    3. Calls `_render_to_png()` to produce `mindmap.png`
+    4. Returns `{'image_path', 'image_relative_path', 'source_path', 'source_relative_path'}`
+  - `regenerate(source_path)` - Static method for re-rendering from edited source file
+    - Reads `.md` file, renders PNG to same directory, returns PNG path
+    - Used by `regenerate_mindmap.py` standalone script
+  - `_render_to_png(mindmap_md, output_path)` - Core rendering logic
+    1. Escapes Markdown as JSON string for JS embedding
+    2. Generates temp HTML with inline Markmap.js (CDN: d3@7, markmap-view, markmap-lib)
+    3. Opens HTML with Playwright sync API (Chromium, viewport 1600x900)
+    4. Waits for `[data-ready="true"]` attribute (set after 2s setTimeout)
+    5. Screenshots the SVG element (`#markmap`)
+    6. Cleans up temp HTML
+  - `_escape_for_js(text)` - Uses `json.dumps()` for safe JS string literal
+  - `_sanitize_dirname(title)` - Same pattern as FrameExtractor
+- HTML template uses `__MINDMAP_CONTENT__` placeholder (not `{}` braces, to avoid conflict with JS syntax)
+- Uses Playwright **sync** API (unlike douyin_parser which uses async)
+- Graceful degradation: all failures return None, never raises
+
+**regenerate_mindmap.py** - Standalone mindmap regeneration script
+- Usage: `python regenerate_mindmap.py <mindmap.md path>`
+- Calls `MindMapGenerator.regenerate()` to re-render PNG from edited source
+- PNG is written to same directory as source file, overwriting previous version
+- Since note MD references relative path, no note file edits needed after regeneration
+
 ## Common Commands
 
 ### Installation
@@ -196,7 +235,7 @@ python main.py "D:\path\to\video.mp4" -o result.json
 # Parse only (no transcription)
 python main.py "URL_OR_FILE" --no-transcribe -o result.json
 
-# With AI-powered text formatting (summary + formatted transcript)
+# With AI-powered text formatting (summary + formatted transcript + mindmap)
 python main.py "URL_OR_FILE" --format-text -o result.json
 
 # With speaker detection
@@ -214,7 +253,7 @@ python main.py "https://v.douyin.com/OQsck5Woryw/" -o test.json
 # Quick test with Bilibili URL
 python main.py "https://www.bilibili.com/video/BV1MbFXz5Esa/" -o test.json
 
-# Quick test with text formatting (summary + formatted transcript)
+# Quick test with text formatting (summary + formatted transcript + mindmap)
 python main.py "https://www.bilibili.com/video/BV1MbFXz5Esa/" --format-text -o test.json
 
 # Quick test with local video (parse only)
@@ -289,7 +328,10 @@ Direct console output shows Chinese as garbled text (GBK encoding issue).
 When using `-o` flag, two files are generated:
 1. **JSON file** - Complete video info with transcription segments
 2. **MD file** - Human-readable note with formatted tables and content
-3. **Assets folder** (when `--format-text` is used) - `{title}_assets/` containing keyframe images (`frame_01_00m29s.jpg`, etc.)
+3. **Assets folder** (when `--format-text` is used) - `{title}_assets/` containing:
+   - Keyframe images (`frame_01_00m29s.jpg`, etc.)
+   - Mindmap source (`mindmap.md`) — editable Markdown, can be regenerated
+   - Mindmap image (`mindmap.png`) — rendered by Markmap.js + Playwright
 
 ### JSON Structure
 ```json
@@ -318,6 +360,10 @@ Based on `视频笔记模板.md`, contains:
   - **关键帧** (Keyframes): Frame images inserted at key moments in the transcript (when `--format-text` enabled)
     - Format: `![mm:ss](title_assets/frame_01_00m29s.jpg)` followed by `*mm:ss*`
     - Up to 8 keyframes, evenly distributed across the transcript
+- 思维导图 (Mindmap) section with:
+  - Mindmap PNG image: `![思维导图](title_assets/mindmap.png)` (when `--format-text` enabled)
+  - Source file link: `> 源文件: [title_assets/mindmap.md](title_assets/mindmap.md)（可编辑后重新生成）`
+  - When `--format-text` is not used or generation fails, the section is empty
 
 Note: `transcription` is `null` if extraction fails or no audio URL is found.
 When `--format-text` is not used, summary shows "无摘要" and text shows raw transcription.
@@ -373,6 +419,7 @@ Local video transcription requires Alibaba Cloud OSS:
 The `--format-text` flag enables AI-powered text processing:
 1. **Summary Generation** - Extracts core themes and key points
 2. **Text Formatting** - Adds paragraphs and bold emphasis without modifying content
+3. **Mindmap Generation** - Structures transcription into hierarchical Markdown, rendered as PNG
 
 ### Configuration
 Add to `config.json`:
@@ -387,8 +434,9 @@ Add to `config.json`:
 ```
 
 ### API Usage Notes
-- Each `--format-text` call makes 3 API requests (summary + formatting + key moment identification)
+- Each `--format-text` call makes 4 API requests (summary + formatting + key moment identification + mindmap structure)
 - Uses `deepseek-reasoner` model by default
 - 120 second timeout per request
 - If formatting fails, falls back to raw transcription text
 - If key moment identification or frame extraction fails, falls back to formatted text without images
+- If mindmap generation fails (API or Playwright), note is still generated without mindmap

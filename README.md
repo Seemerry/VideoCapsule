@@ -38,10 +38,16 @@
   - 最多截取 8 个关键帧，均匀分布在整个视频时间线上
   - 支持远程视频（自动下载）和本地视频
 
+- **思维导图生成**：自动将转录文本整理为思维导图
+  - 使用 DeepSeek API 提取核心主题和关键分支，生成层级 Markdown 结构
+  - 使用 Markmap.js + Playwright 渲染为 PNG 图片，嵌入笔记
+  - 保留 Markdown 源文件（`mindmap.md`），可手动编辑后重新生成
+  - 提供独立脚本 `regenerate_mindmap.py`，编辑后一键更新图片
+
 - **Markdown笔记生成**：自动生成结构化的笔记文件
   - 基于 `视频笔记模板.md` 模板生成
   - 包含视频封面、资源链接、基础信息、统计数据
-  - 智能摘要 + 格式化原文 + 关键帧图片
+  - 智能摘要 + 格式化原文 + 关键帧图片 + 思维导图
   - 文件名格式：`{视频标题}_笔记.md`
   - 关键帧图片保存在 `{视频标题}_assets/` 文件夹中
 
@@ -58,11 +64,13 @@ DouyinVideoExtractor/
 │   ├── text_extractor.py       # 文本提取模块（音频转文本）
 │   ├── text_formatter.py       # 文本格式化模块（DeepSeek API）
 │   ├── frame_extractor.py      # 关键帧提取模块（ffmpeg）
+│   ├── mindmap_generator.py    # 思维导图生成模块（Markmap.js + Playwright）
 │   └── md_generator.py         # Markdown笔记生成模块
 ├── config.json                 # 配置文件（需自行填写，已gitignore）
 ├── config.example.json         # 配置文件示例
 ├── 视频笔记模板.md              # Markdown笔记模板
 ├── main.py                     # 主入口
+├── regenerate_mindmap.py       # 思维导图重新生成脚本
 ├── requirements.txt            # Python依赖
 ├── CLAUDE.md                   # 开发者指南
 └── README.md                   # 本文档
@@ -171,7 +179,10 @@ python main.py "URL" --no-transcribe -o result.json
 **输出文件**：使用 `-o` 参数时，会同时生成两个文件：
 - `result.json` - 完整的视频信息（JSON格式）
 - `视频标题_笔记.md` - 可读性强的Markdown笔记
-- `视频标题_assets/` - 关键帧图片文件夹（使用 `--format-text` 时生成）
+- `视频标题_assets/` - 资源文件夹（使用 `--format-text` 时生成）
+  - `frame_01_00m29s.jpg` 等 - 关键帧图片
+  - `mindmap.md` - 思维导图源文件（可编辑）
+  - `mindmap.png` - 思维导图图片
 
 **重要提示**：
 - Windows 控制台中文会显示为乱码，**建议使用 `-o` 参数保存到文件**
@@ -182,7 +193,7 @@ python main.py "URL" --no-transcribe -o result.json
 ### 高级选项
 
 ```bash
-# 启用智能文稿处理（摘要 + 格式化 + 关键帧截取）
+# 启用智能文稿处理（摘要 + 格式化 + 关键帧截取 + 思维导图）
 python main.py "URL" --format-text -o result.json
 
 # 使用Paraformer模型进行转录
@@ -205,7 +216,7 @@ python main.py "URL" --config /path/to/config.json -o result.json
 | `-c, --config` | 配置文件路径 | `./config.json`（默认） |
 | `-o, --output` | 输出文件路径 | `result.json` |
 | `--no-transcribe` | 仅解析链接/文件，不进行转录 | 添加此标志即可 |
-| `--format-text` | 使用 DeepSeek API 优化文稿（摘要 + 格式化 + 关键帧） | 添加此标志即可 |
+| `--format-text` | 使用 DeepSeek API 优化文稿（摘要 + 格式化 + 关键帧 + 思维导图） | 添加此标志即可 |
 
 ## 输出格式
 
@@ -386,7 +397,7 @@ generator = MarkdownGenerator()  # 默认使用 ./视频笔记模板.md
 # 从视频信息生成Markdown笔记（不格式化）
 md_path = generator.generate(video_info, output_dir='./output')
 
-# 启用智能文稿处理（摘要 + 格式化原文 + 关键帧截取）
+# 启用智能文稿处理（摘要 + 格式化原文 + 关键帧截取 + 思维导图）
 md_path = generator.generate(
     video_info,
     output_dir='./output',
@@ -404,6 +415,7 @@ md_path = generator.generate(
 # - 智能摘要（format_text=True 时）
 # - 格式化转录文稿（format_text=True 时）
 # - 关键帧图片插入到文稿对应位置（format_text=True 时）
+# - 思维导图（format_text=True 时）
 ```
 
 ### 文本格式化模块 (modules/text_formatter.py)
@@ -427,6 +439,38 @@ result = formatter.process_text(raw_text, title="视频标题")
 #     'summary': '生成的摘要内容...',
 #     'formatted_text': '格式化后的原文...'
 # }
+
+# 生成思维导图 Markdown 结构
+mindmap_md = formatter.generate_mindmap_markdown(raw_text, title="视频标题")
+# mindmap_md: "# 主题\n## 观点一\n### 细节\n..."
+```
+
+### 思维导图生成模块 (modules/mindmap_generator.py)
+
+封装了使用 Markmap.js + Playwright 将 Markdown 渲染为思维导图 PNG 的功能。
+
+```python
+from modules import MindMapGenerator
+
+generator = MindMapGenerator()
+
+# 生成思维导图图片和源文件
+result = generator.generate(mindmap_md, output_dir='./output', title='视频标题')
+# result = {
+#     'image_path': '绝对路径/mindmap.png',
+#     'image_relative_path': '视频标题_assets/mindmap.png',
+#     'source_path': '绝对路径/mindmap.md',
+#     'source_relative_path': '视频标题_assets/mindmap.md',
+# }
+
+# 从编辑后的源文件重新生成 PNG
+png_path = MindMapGenerator.regenerate('./output/视频标题_assets/mindmap.md')
+```
+
+**独立重新生成脚本**：编辑 `mindmap.md` 后，可运行脚本更新图片：
+
+```bash
+python regenerate_mindmap.py ./output/视频标题_assets/mindmap.md
 ```
 
 ## 技术实现
@@ -439,6 +483,7 @@ result = formatter.process_text(raw_text, title="视频标题")
 | 音频转录 | 豆包 / Paraformer | 支持两种语音识别模型 |
 | 文本格式化 | DeepSeek API | 摘要生成和原文排版优化 |
 | 关键帧截取 | DeepSeek API + ffmpeg | AI 识别关键节点 + ffmpeg 截帧 |
+| 思维导图 | DeepSeek API + Markmap.js + Playwright | AI 生成结构化 Markdown + 渲染为 PNG |
 
 ## 注意事项
 
@@ -461,7 +506,7 @@ result = formatter.process_text(raw_text, title="视频标题")
 
 5. **DeepSeek API 费用**
    - 使用 `--format-text` 参数会调用 DeepSeek API
-   - 费用按 token 计费，摘要、格式化和关键节点识别各调用一次 API（共 3 次）
+   - 费用按 token 计费，摘要、格式化、关键节点识别和思维导图各调用一次 API（共 4 次）
    - 建议仅在需要时启用此功能
 
 6. **关键帧截取**
@@ -470,11 +515,17 @@ result = formatter.process_text(raw_text, title="视频标题")
    - 帧图片保存在 `{视频标题}_assets/` 文件夹中
    - 如果截帧失败（ffmpeg 不可用、下载失败等），仍会正常生成笔记，只是没有图片
 
-7. **Bilibili 音视频格式**
+7. **思维导图**
+   - 需要安装 Playwright Chromium 浏览器（`playwright install chromium`）
+   - 渲染时需要联网加载 CDN 资源（Markmap.js、D3.js）
+   - 生成的 `mindmap.md` 源文件可手动编辑，编辑后运行 `python regenerate_mindmap.py` 重新生成 PNG
+   - 如果思维导图生成失败（Playwright 不可用、CDN 加载超时等），笔记仍会正常生成，只是没有思维导图
+
+8. **Bilibili 音视频格式**
    - Bilibili 使用 DASH 格式，视频和音频分离（.m4s 文件）
    - `video_url` 和 `audio_url` 分别对应独立的流
 
-8. **本地视频转录**
+9. **本地视频转录**
    - 需要配置阿里云 OSS（用于临时上传文件）
    - 需要安装 ffmpeg（包含 ffprobe）以获取视频时长
    - 转录完成后会自动删除 OSS 上的临时文件
@@ -515,6 +566,13 @@ result = formatter.process_text(raw_text, title="视频标题")
 2. OSS Bucket 权限是否允许 PutObject/GetObject/DeleteObject
 3. 是否安装了 ffmpeg（包含 ffprobe）
 4. 本地视频文件格式是否支持（mp4/avi/mov/mkv/flv/wmv/webm/m4v）
+
+### Q: 如何修改思维导图内容？
+**A**: 编辑 `{视频标题}_assets/mindmap.md` 文件（标准 Markdown 层级标题格式），然后运行：
+```bash
+python regenerate_mindmap.py {视频标题}_assets/mindmap.md
+```
+PNG 会原地覆盖更新，笔记中的引用自动生效。
 
 ## 许可证
 

@@ -8,6 +8,7 @@ from typing import Optional, List
 
 from .text_formatter import TextFormatter
 from .frame_extractor import FrameExtractor
+from .mindmap_generator import MindMapGenerator
 
 
 class MarkdownGenerator:
@@ -221,6 +222,7 @@ class MarkdownGenerator:
         # 初始化摘要和文本
         summary = '无摘要'
         text = raw_text
+        mindmap_image_md = ''
 
         # 如果启用格式化，使用 DeepSeek API 处理文本（生成摘要 + 格式化原文）
         if format_text and raw_text != '无转录内容':
@@ -239,6 +241,19 @@ class MarkdownGenerator:
                     formatter, text, segments,
                     urls.get('video_url', ''), title, output_dir or '.'
                 )
+
+            # 生成思维导图
+            mindmap_md = formatter.generate_mindmap_markdown(raw_text, title)
+            if mindmap_md:
+                mg = MindMapGenerator()
+                mindmap_result = mg.generate(mindmap_md, output_dir or '.', title)
+                if mindmap_result:
+                    img_rel = mindmap_result['image_relative_path']
+                    src_rel = mindmap_result['source_relative_path']
+                    mindmap_image_md = (
+                        f'![思维导图]({img_rel})\n\n'
+                        f'> 源文件: [{src_rel}]({src_rel})（可编辑后重新生成）'
+                    )
 
         # 当前时间（精确到分）
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -262,6 +277,7 @@ class MarkdownGenerator:
         md_content = md_content.replace('"collect_count"', self._format_number(collect_count))
         md_content = md_content.replace('"summary"', summary)
         md_content = md_content.replace('"text"', text)
+        md_content = md_content.replace('"mindmap"', mindmap_image_md)
 
         # 生成文件名
         safe_title = self._sanitize_filename(title)

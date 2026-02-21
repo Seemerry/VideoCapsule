@@ -185,6 +185,42 @@ class TextFormatter:
 
         return result
 
+    def generate_mindmap_markdown(self, raw_text: str, title: Optional[str] = None) -> Optional[str]:
+        """使用 DeepSeek API 将转录文本整理为思维导图 Markdown 结构
+
+        Args:
+            raw_text: 原始转录文本
+            title: 视频标题（可选，用于提供上下文）
+
+        Returns:
+            str: 思维导图 Markdown（层级标题结构），失败返回 None
+        """
+        if not self.api_key:
+            print("警告: 未配置 DeepSeek API Key，跳过思维导图生成", file=__import__('sys').stderr)
+            return None
+
+        if not raw_text or raw_text == '无转录内容':
+            return None
+
+        system_prompt = """你是一个专业的知识结构化助手。你的任务是将视频转录文本整理为思维导图的 Markdown 层级结构。
+
+请严格遵守以下规则：
+1. 提取视频的核心主题作为一级标题（#）
+2. 提取 2-5 个核心观点作为二级标题（##）
+3. 在每个核心观点下，用三级标题（###）或列表项（-）展开关键细节
+4. 层级不超过 4 层（# → ## → ### → -）
+5. 每个节点的文字要简洁精炼，控制在 15 字以内
+6. 保留原文中的关键数据和核心概念
+7. 使用 # 标题和 - 列表混合的格式
+8. 不要添加任何解释性文字，只输出思维导图 Markdown 结构"""
+
+        user_prompt = f"请将以下视频内容整理为思维导图 Markdown 结构：\n\n{raw_text}"
+        if title:
+            user_prompt = f"视频标题：{title}\n\n" + user_prompt
+
+        print("正在生成思维导图...", file=__import__('sys').stderr)
+        return self._call_api(system_prompt, user_prompt)
+
     def identify_key_moments(self, formatted_text: str, segments: List[dict],
                              max_moments: int = 8) -> List[dict]:
         """识别文稿中的关键节点，返回对应的时间戳
