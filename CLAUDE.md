@@ -129,7 +129,8 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
   - `_find_insertion_point(text, segment_text)` - Locates segment text in formatted output, backtracks to nearest paragraph boundary (`\n\n`)
 - Template placeholders: `"title"`, `"cover_url"`, `"video_url"`, `"audio_url"`, `"tag"`, `"author"`, `"author_id"`, `"duration"`, `"video_id"`, `"create_time"`, `"like_count"`, `"comment_count"`, `"share_count"`, `"collect_count"`, `"summary"`, `"text"`, `"mindmap"`, `time` (current time)
 - Output filename: `{title}_笔记.md`
-- Handles null values gracefully (shows "无数据", "未知", or "无摘要")
+- Handles null values gracefully via `or` fallback pattern (e.g. `urls.get('cover_url') or '无'`), shows "无数据", "未知", "无", or "无摘要"
+  - Note: must use `or` instead of `dict.get(key, default)` because fields may exist with `None` value (e.g. local videos have `cover_url: null`)
 
 **modules/text_formatter.py** - Text formatting and summary generation
 - Self-contained text processor using DeepSeek API

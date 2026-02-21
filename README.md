@@ -356,6 +356,7 @@ if parser.is_local_file("D:\\video.mp4"):
     result = parser.parse("D:\\video.mp4")
     # result 包含: status, urls, content, author_info, statistics, video_detail, music_info
     # 注意: statistics 字段为 null（本地文件无统计数据）
+    # 注意: cover_url 等字段为 null（本地文件无封面等信息），笔记生成时自动显示为"无"
 ```
 
 ### 文本提取模块 (modules/text_extractor.py)
@@ -538,6 +539,7 @@ python regenerate_mindmap.py ./output/视频标题_assets/mindmap.md
    - 需要配置阿里云 OSS（用于临时上传文件）
    - 需要安装 ffmpeg（包含 ffprobe）以获取视频时长
    - 转录完成后会自动删除 OSS 上的临时文件
+   - 本地视频无封面、统计数据等信息，笔记中对应字段显示为"无"或"无数据"
 
 10. **受限音频URL处理**
    - Bilibili 和抖音的音频URL需要特殊请求头（Referer 等）才能下载

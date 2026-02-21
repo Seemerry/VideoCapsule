@@ -199,15 +199,15 @@ class MarkdownGenerator:
         video_detail = video_info.get('video_detail', {})
         transcription = video_info.get('transcription')
 
-        title = content.get('title', '未知标题')
-        tag = content.get('tag', '无')
-        cover_url = urls.get('cover_url', '无')
-        video_url = urls.get('video_url', '无')
-        audio_url = urls.get('audio_url', '无')
-        author = author_info.get('author', '未知')
-        author_id = author_info.get('author_id', '未知')
+        title = content.get('title') or '未知标题'
+        tag = content.get('tag') or '无'
+        cover_url = urls.get('cover_url') or '无'
+        video_url = urls.get('video_url') or '无'
+        audio_url = urls.get('audio_url') or '无'
+        author = author_info.get('author') or '未知'
+        author_id = author_info.get('author_id') or '未知'
         duration = video_detail.get('duration')
-        video_id = video_detail.get('video_id', '未知')
+        video_id = video_detail.get('video_id') or '未知'
         create_time = video_detail.get('create_time')
 
         # 统计数据
