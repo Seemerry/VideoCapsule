@@ -13,10 +13,15 @@ import requests
 class FrameExtractor:
     """视频关键帧提取器"""
 
-    # B站下载需要的请求头
+    # 平台下载请求头
     BILIBILI_HEADERS = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Referer': 'https://www.bilibili.com',
+    }
+
+    DOUYIN_HEADERS = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://www.douyin.com/',
     }
 
     def extract_frames(self, video_source: str, timestamps_ms: List[int],
@@ -94,6 +99,8 @@ class FrameExtractor:
             headers = {}
             if platform == 'bilibili':
                 headers = self.BILIBILI_HEADERS
+            elif platform == 'douyin':
+                headers = self.DOUYIN_HEADERS
 
             response = requests.get(url, headers=headers, stream=True, timeout=120)
             response.raise_for_status()

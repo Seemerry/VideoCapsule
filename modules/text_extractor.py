@@ -2,8 +2,11 @@
 
 import json
 import os
+import re
+import sys
 import uuid
 import time
+import tempfile
 import requests
 from pathlib import Path
 from http import HTTPStatus
@@ -45,6 +48,63 @@ class TextExtractor:
             self._oss_uploader = OSSUploader(self.config['oss'])
         return self._oss_uploader
 
+    # 需要特殊 headers 才能下载的平台 URL 模式
+    _RESTRICTED_PATTERNS = {
+        'bilibili': {
+            'domains': ['bilivideo.com', 'bilibili.com', 'b23.tv'],
+            'headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://www.bilibili.com',
+            },
+        },
+        'douyin': {
+            'domains': ['douyinvod.com', 'douyin.com', 'iesdouyin.com'],
+            'headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://www.douyin.com/',
+            },
+        },
+    }
+
+    def _detect_restricted_url(self, url: str) -> Optional[dict]:
+        """检测 URL 是否属于需要特殊 headers 的平台
+
+        Returns:
+            dict: 平台 headers，如果是受限 URL；否则 None
+        """
+        url_lower = url.lower()
+        for platform, info in self._RESTRICTED_PATTERNS.items():
+            if any(d in url_lower for d in info['domains']):
+                return info['headers']
+        return None
+
+    def _download_to_temp(self, url: str, headers: dict) -> Optional[str]:
+        """下载受限 URL 到本地临时文件
+
+        Args:
+            url: 音频 URL
+            headers: 请求头
+
+        Returns:
+            str: 临时文件路径，失败返回 None
+        """
+        try:
+            response = requests.get(url, headers=headers, stream=True, timeout=120)
+            response.raise_for_status()
+
+            # 根据 URL 推断后缀
+            suffix = '.m4s' if '.m4s' in url.split('?')[0] else '.mp4'
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    tmp.write(chunk)
+            tmp.close()
+            return tmp.name
+
+        except Exception as e:
+            print(f"音频下载失败: {e}", file=sys.stderr)
+            return None
+
     def extract(self, audio_source: str, model: str = 'doubao',
                 language_hints: Optional[List[str]] = None,
                 enable_speaker_info: bool = False) -> dict:
@@ -66,6 +126,7 @@ class TextExtractor:
         audio_url = audio_source
         oss_info = None
         oss_uploader = None
+        temp_download = None
 
         if os.path.isfile(audio_source):
             # 本地文件需要上传到OSS
@@ -76,6 +137,23 @@ class TextExtractor:
             # 上传文件并获取URL
             oss_info = oss_uploader.upload_file(audio_source, expires_hours=2)
             audio_url = oss_info['url']
+        else:
+            # 检测是否为受限 URL（需要特殊 headers 才能下载）
+            restricted_headers = self._detect_restricted_url(audio_source)
+            if restricted_headers:
+                print("检测到受限音频URL，正在下载...", file=sys.stderr)
+                temp_download = self._download_to_temp(audio_source, restricted_headers)
+                if temp_download is None:
+                    raise RuntimeError("受限音频URL下载失败")
+
+                # 下载成功后上传到 OSS
+                oss_uploader = self._get_oss_uploader()
+                if oss_uploader is None:
+                    raise RuntimeError("受限URL转录需要OSS配置，请在config.json中添加oss配置")
+
+                oss_info = oss_uploader.upload_file(temp_download, expires_hours=2)
+                audio_url = oss_info['url']
+                print("音频已上传到OSS", file=sys.stderr)
 
         try:
             if model == 'doubao':
@@ -93,6 +171,12 @@ class TextExtractor:
                     oss_uploader.delete_file(oss_info['object_key'])
                 except Exception:
                     pass  # 删除失败不影响结果
+            # 清理本地临时下载文件
+            if temp_download and os.path.exists(temp_download):
+                try:
+                    os.unlink(temp_download)
+                except OSError:
+                    pass
 
     def _transcribe_audio_doubao(self, file_urls: List[str],
                                   language_hints: Optional[List[str]] = None,
