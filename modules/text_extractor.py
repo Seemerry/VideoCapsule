@@ -71,6 +71,13 @@ class TextExtractor:
                 'Referer': 'https://www.xiaohongshu.com',
             },
         },
+        'kuaishou': {
+            'domains': ['kuaishou.com', 'ksvideo'],
+            'headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://www.kuaishou.com',
+            },
+        },
     }
 
     def _detect_restricted_url(self, url: str) -> Optional[dict]:

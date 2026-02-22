@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a multi-platform video information extractor that combines link parsing and audio transcription. Given a Douyin URL, Bilibili URL, Xiaohongshu URL, or local video file, it extracts comprehensive video metadata, transcribes the audio content using speech-to-text APIs, and generates Markdown notes with AI-powered summaries.
+This is a multi-platform video information extractor that combines link parsing and audio transcription. Given a Douyin URL, Bilibili URL, Xiaohongshu URL, Kuaishou URL, or local video file, it extracts comprehensive video metadata, transcribes the audio content using speech-to-text APIs, and generates Markdown notes with AI-powered summaries.
 
 **Note**: This project is fully self-contained with no external project dependencies.
 
@@ -13,7 +13,7 @@ This is a multi-platform video information extractor that combines link parsing 
 ### Data Flow
 
 ```
-Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Xiaohongshu/Local) → Video Info → TextExtractor → Transcription
+Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Xiaohongshu/Kuaishou/Local) → Video Info → TextExtractor → Transcription
                                                                                     ↓
                                                                             Complete JSON Output
                                                                                     ↓
@@ -28,7 +28,7 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Xiaohongshu/Lo
 ### Core Components
 
 **main.py** - Entry point and orchestrator
-- `detect_platform(url)` - Detects platform from URL or local file path (douyin/bilibili/xiaohongshu/local/unknown)
+- `detect_platform(url)` - Detects platform from URL or local file path (douyin/bilibili/xiaohongshu/kuaishou/local/unknown)
 - `VideoExtractor.extract()` - Main extraction pipeline
   1. Detects platform and selects appropriate parser
   2. Parses URL via `DouyinLinkParser`, `BilibiliLinkParser`, `XiaohongshuLinkParser`, or `LocalVideoParser`
@@ -100,6 +100,31 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Xiaohongshu/Lo
   - **Image notes** (`note_type: 'image'`): extracts image list from `imageList[].infoList[-1].url`, no video/audio URLs
 - Cover URL: supplemented from `og:image` meta tag when SSR data lacks `infoList` for cover
 - Debug mode available via `XHS_DEBUG=1` environment variable
+
+**modules/kuaishou_parser.py** - Kuaishou (快手) video metadata extraction
+- Playwright-based parser (browser automation needed for cookies)
+- Uses `_KuaishouParserCore` class for all parsing logic
+- `KuaishouLinkParser` class - Public interface (same as other parsers)
+- Key methods:
+  - `extract_url()` - Extracts clean URL from share text (supports `v.kuaishou.com`, `www.kuaishou.com/short-video/`, `www.kuaishou.com/f/`)
+  - `_extract_photo_id(url)` - Extracts video ID (photoId) from URL path
+  - `parse()` / `parse_async()` - Main parsing logic:
+    1. Opens page with Playwright to get cookies and resolve short links
+    2. Captures GraphQL API responses via route interception
+    3. Falls back to active GraphQL API call via `page.evaluate(fetch(...))`
+    4. Falls back to `__APOLLO_STATE__` extraction from page HTML
+    5. Falls back to `og:*` meta tag extraction
+  - `_fetch_via_graphql(page, photo_id, cookie_str)` - GraphQL API call using browser's fetch (auto-carries cookies)
+  - `_extract_from_graphql_response(data)` - Extracts video info from GraphQL response
+  - `_extract_apollo_state(html)` - Parses `window.__APOLLO_STATE__` from page HTML
+  - `_extract_from_html(html, photo_id)` - Fallback extraction from `og:*` meta tags
+  - `_parse_title_and_tag(title_text)` - Tag parsing (`#tag` format, same as Douyin)
+  - `_parse_count(value)` - Handles string counts like `'1.2万'` → `12000`
+- GraphQL endpoint: `POST https://www.kuaishou.com/graphql`, query: `visionVideoDetail`
+- Video URL: combined MP4 stream (audio+video), `audio_url = video_url`
+- Statistics: no dedicated share count, `share_count` uses `viewCount` (play count)
+- Uses Playwright **async** API (same as douyin_parser)
+- Debug mode available via `KUAISHOU_DEBUG=1` environment variable
 
 **modules/oss_uploader.py** - OSS file upload for local video transcription
 - `OSSUploader` class - Handles file upload to Alibaba Cloud OSS
@@ -268,6 +293,12 @@ python main.py "http://xhslink.com/o/xxxxx" -o result.json
 # Xiaohongshu full links
 python main.py "https://www.xiaohongshu.com/explore/xxxxx" -o result.json
 
+# Kuaishou links (auto-detected, supports share text with URL)
+python main.py "https://v.kuaishou.com/xxxxx" -o result.json
+
+# Kuaishou full links
+python main.py "https://www.kuaishou.com/short-video/xxxxx" -o result.json
+
 # Local video files (auto-detected)
 python main.py "D:\path\to\video.mp4" -o result.json
 
@@ -301,6 +332,12 @@ python main.py "http://xhslink.com/o/5uQW2gORRU1" --no-transcribe -o test.json
 # Quick test with Xiaohongshu (full flow with transcription)
 python main.py "http://xhslink.com/o/5uQW2gORRU1" --format-text -o test.json
 
+# Quick test with Kuaishou URL (parse only)
+python main.py "https://v.kuaishou.com/KH3UkHnt" --no-transcribe -o test.json
+
+# Quick test with Kuaishou (full flow with transcription)
+python main.py "https://v.kuaishou.com/KH3UkHnt" --format-text -o test.json
+
 # Quick test with local video (parse only)
 python main.py "D:\path\to\video.mp4" --no-transcribe -o test.json
 
@@ -327,6 +364,8 @@ def detect_platform(url: str) -> str:
         return 'bilibili'
     elif any(domain in url_lower for domain in ['xiaohongshu.com', 'xhslink.com', 'xhs.cn']):
         return 'xiaohongshu'
+    elif any(domain in url_lower for domain in ['kuaishou.com', 'v.kuaishou.com']):
+        return 'kuaishou'
     return 'unknown'
 ```
 
@@ -367,6 +406,19 @@ Tries `audio_url` first, falls back to `video_url` if missing.
 - Tag format: `#科技[话题]#` — bracket tags extracted alongside hash tags
 - Debug mode available via `XHS_DEBUG=1` environment variable
 
+**Kuaishou Parser:**
+- Uses Playwright async API for browser automation (cookies required for GraphQL API)
+- Resolves `v.kuaishou.com` short links via browser navigation (redirect)
+- Extracts video ID (`photoId`) from final URL path
+- Primary data source: GraphQL API (`POST https://www.kuaishou.com/graphql`) with `visionVideoDetail` query
+- GraphQL call uses `page.evaluate(fetch(...))` to leverage browser's cookies
+- Fallback 1: `window.__APOLLO_STATE__` JSON from page HTML
+- Fallback 2: `og:*` meta tags
+- Video URL: combined MP4 stream (audio+video), `audio_url = video_url`
+- No dedicated share count; `share_count` uses `viewCount` (play count)
+- `collect_count` is always `null` (not available via API)
+- Debug mode available via `KUAISHOU_DEBUG=1` environment variable
+
 ### Unified Output Structure
 All parsers output the same hierarchical JSON structure with categories:
 `status`, `urls`, `content`, `author_info`, `statistics`, `video_detail`, `music_info`
@@ -378,6 +430,22 @@ All fields are optional - check existence before accessing.
 - Error stored in `video_info['status']['transcription_error']`
 - Video info is still returned even if transcription fails
 - Image notes (`note_type == 'image'`) skip transcription entirely; `transcription` is `None`
+
+### Share Text with Embedded Quotes
+Platform share texts (especially Kuaishou) may contain ASCII double quotes `"` which break shell argument parsing. Three workarounds:
+
+```bash
+# 1. Pass URL only (recommended — extract_url handles the rest)
+python main.py "https://v.kuaishou.com/KH3UkHnt" --format-text -o result.json
+
+# 2. Use single quotes (bash only — single quotes preserve literal double quotes)
+python main.py 'https://v.kuaishou.com/KH3UkHnt 你真的了解"卷积神经网络"吗？...' --format-text -o result.json
+
+# 3. Pipe via stdin (works everywhere — no shell quoting issues)
+echo '...share text with "quotes"...' | python main.py --format-text -o result.json
+```
+
+All parsers' `extract_url()` methods correctly extract URLs from messy share text containing quotes, hashtags, and other characters.
 
 ### Windows Console Encoding Issue
 Direct console output shows Chinese as garbled text (GBK encoding issue).
@@ -480,6 +548,38 @@ Required for page requests and restricted audio/video URL downloads.
 Xiaohongshu uses a unique tag format: `#科技[话题]#`
 - Both `#tag` and `[topic]` formats are extracted by `parse_title_and_tag()`
 - Tags appear in `content.desc` (description), not in `content.title`
+
+## Kuaishou-Specific Notes
+
+### GraphQL API
+- Endpoint: `POST https://www.kuaishou.com/graphql`
+- Query: `visionVideoDetail` with `photoId` variable
+- Requires cookies from a browser session — cannot be called with plain HTTP requests
+- Returns: `data.visionVideoDetail.{photo, author}`
+
+### Short Link Resolution
+- `v.kuaishou.com` short links resolve via browser navigation (Playwright)
+- Final URL format: `www.kuaishou.com/short-video/{photoId}` or `www.kuaishou.com/f/{photoId}`
+
+### Video Format
+- Kuaishou videos are combined MP4 streams (audio + video in one file)
+- `audio_url = video_url` (same as Xiaohongshu)
+- Higher quality URLs may be available in `photo.manifest.adaptationSet[].representation[]`
+
+### API Headers
+```python
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Referer': 'https://www.kuaishou.com',
+}
+```
+Required for restricted audio/video URL downloads.
+
+### Statistics
+- `like_count`: from `photo.likeCount`
+- `comment_count`: from `photo.commentCount`
+- `share_count`: uses `photo.viewCount` (play count, no dedicated share count)
+- `collect_count`: always `null` (not available)
 
 ## Local Video Notes
 

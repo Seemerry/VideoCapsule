@@ -7,7 +7,7 @@ import os
 import re
 import sys
 
-from modules import DouyinLinkParser, BilibiliLinkParser, LocalVideoParser, XiaohongshuLinkParser, TextExtractor, MarkdownGenerator
+from modules import DouyinLinkParser, BilibiliLinkParser, LocalVideoParser, XiaohongshuLinkParser, KuaishouLinkParser, TextExtractor, MarkdownGenerator
 
 
 def detect_platform(url: str) -> str:
@@ -31,6 +31,8 @@ def detect_platform(url: str) -> str:
         return 'bilibili'
     elif any(domain in url_lower for domain in ['xiaohongshu.com', 'xhslink.com', 'xhs.cn']):
         return 'xiaohongshu'
+    elif any(domain in url_lower for domain in ['kuaishou.com', 'v.kuaishou.com']):
+        return 'kuaishou'
     return 'unknown'
 
 
@@ -42,6 +44,7 @@ class VideoExtractor:
         self.bilibili_parser = BilibiliLinkParser()
         self.local_parser = LocalVideoParser()
         self.xiaohongshu_parser = XiaohongshuLinkParser()
+        self.kuaishou_parser = KuaishouLinkParser()
         self.text_extractor = TextExtractor(config_path)
 
     def _get_parser(self, platform: str):
@@ -52,6 +55,8 @@ class VideoExtractor:
             return self.local_parser
         elif platform == 'xiaohongshu':
             return self.xiaohongshu_parser
+        elif platform == 'kuaishou':
+            return self.kuaishou_parser
         return self.douyin_parser
 
     def extract(self, url: str,
@@ -118,9 +123,9 @@ class VideoExtractor:
 def main():
     """主函数"""
     arg_parser = argparse.ArgumentParser(
-        description='视频信息提取器 - 支持抖音、Bilibili、小红书和本地视频，输出完整的视频信息和文本'
+        description='视频信息提取器 - 支持抖音、Bilibili、小红书、快手和本地视频，输出完整的视频信息和文本'
     )
-    arg_parser.add_argument('url', nargs='?', help='视频链接、分享文本或本地视频文件路径（支持抖音/Bilibili/小红书/本地文件）')
+    arg_parser.add_argument('url', nargs='?', help='视频链接、分享文本或本地视频文件路径（支持抖音/Bilibili/小红书/快手/本地文件）')
     arg_parser.add_argument('-m', '--model', choices=['paraformer', 'doubao'],
                         default='doubao', help='转录模型（默认: doubao）')
     arg_parser.add_argument('-s', '--speaker-info', action='store_true',

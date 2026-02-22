@@ -1,13 +1,14 @@
 # 视频信息提取器
 
-综合了抖音、Bilibili、小红书链接解析和本地视频处理的音频转文本工具。输入一个视频链接或本地视频文件，即可获取完整的视频信息和文本转录结果，并自动生成包含摘要的 Markdown 笔记。
+综合了抖音、Bilibili、小红书、快手链接解析和本地视频处理的音频转文本工具。输入一个视频链接或本地视频文件，即可获取完整的视频信息和文本转录结果，并自动生成包含摘要的 Markdown 笔记。
 
 ## 功能特性
 
-- **多平台支持**：自动识别抖音、Bilibili、小红书链接和本地视频文件
+- **多平台支持**：自动识别抖音、Bilibili、小红书、快手链接和本地视频文件
   - 抖音：短链接、完整链接、分享文本
   - Bilibili：BV号链接、b23.tv 短链接、纯BV号
   - 小红书：xhslink.com 短链接、完整链接、分享文本（支持视频笔记和图文笔记）
+  - 快手：v.kuaishou.com 短链接、完整链接、分享文本
   - 本地视频：支持 mp4、avi、mov、mkv、flv、wmv、webm、m4v 格式
 
 - **链接解析模块**：解析视频链接，提取视频信息
@@ -24,7 +25,7 @@
   - 支持豆包录音识别2.0模型（默认）
   - 支持阿里云Paraformer-v2模型
   - 可选说话人识别功能
-  - 自动处理受限音频URL（Bilibili/抖音/小红书平台的音频链接需特殊请求头才能下载）
+  - 自动处理受限音频URL（Bilibili/抖音/小红书/快手平台的音频链接需特殊请求头才能下载）
   - 输出完整文本和时间分段信息（毫秒级精度）
 
 - **智能文稿处理**：使用 DeepSeek API 优化转录文本
@@ -62,6 +63,7 @@ DouyinVideoExtractor/
 │   ├── douyin_parser.py        # 抖音链接解析（Playwright）
 │   ├── bilibili_parser.py      # Bilibili链接解析（HTTP API）
 │   ├── xiaohongshu_parser.py   # 小红书链接解析（HTTP + SSR解析）
+│   ├── kuaishou_parser.py      # 快手链接解析（Playwright + GraphQL）
 │   ├── local_parser.py         # 本地视频解析（ffprobe）
 │   ├── oss_uploader.py         # OSS文件上传模块
 │   ├── text_extractor.py       # 文本提取模块（音频转文本）
@@ -105,7 +107,10 @@ python main.py "https://www.bilibili.com/video/BV1MbFXz5Esa/" -o test.json
 # 5. 运行测试（小红书）
 python main.py "http://xhslink.com/o/5uQW2gORRU1" -o test.json
 
-# 6. 查看结果
+# 6. 运行测试（快手）
+python main.py "https://v.kuaishou.com/KH3UkHnt" -o test.json
+
+# 7. 查看结果
 cat test.json | python -c "import sys, json; d=json.load(sys.stdin); print('标题:', d['content']['title']); print('标签:', d['content'].get('tag', '无'))"
 ```
 
@@ -152,7 +157,7 @@ cp config.example.json config.json
 | `dashscope` | Paraformer 转录模型 | 使用 Paraformer 时需要 |
 | `doubao` | 豆包转录模型（默认） | 是 |
 | `deepseek` | 文本格式化和摘要生成 | 使用 `--format-text` 时需要 |
-| `oss` | 本地视频转录及受限音频URL转录 | 处理本地视频或受限平台URL时需要 |
+| `oss` | 本地视频转录及受限音频URL转录 | 处理本地视频或受限平台（Bilibili/抖音/小红书/快手）URL时需要 |
 
 **OSS 配置说明**（本地视频转录及受限URL转录需要）：
 - 需要阿里云 OSS Bucket
@@ -181,6 +186,12 @@ python main.py "http://xhslink.com/o/xxxxx" -o result.json
 # 小红书完整链接
 python main.py "https://www.xiaohongshu.com/explore/xxxxx" -o result.json
 
+# 快手链接（自动检测平台）
+python main.py "https://v.kuaishou.com/xxxxx" -o result.json
+
+# 快手完整链接
+python main.py "https://www.kuaishou.com/short-video/xxxxx" -o result.json
+
 # 本地视频文件（自动检测）
 python main.py "D:\path\to\video.mp4" -o result.json
 
@@ -198,7 +209,7 @@ python main.py "URL" --no-transcribe -o result.json
 
 **重要提示**：
 - Windows 控制台中文会显示为乱码，**建议使用 `-o` 参数保存到文件**
-- 程序会自动检测输入类型（抖音/Bilibili/小红书/本地文件）
+- 程序会自动检测输入类型（抖音/Bilibili/小红书/快手/本地文件）
 - 本地视频转录需要配置 OSS（用于临时上传）
 - 使用 `--no-transcribe` 可跳过转录，仅提取视频信息
 
@@ -222,7 +233,7 @@ python main.py "URL" --config /path/to/config.json -o result.json
 
 | 参数 | 说明 | 示例 |
 |------|------|------|
-| `url` | 视频链接、分享文本或本地文件路径（可选） | `"https://v.douyin.com/xxxxx/"` 或 `"D:\video.mp4"` |
+| `url` | 视频链接、分享文本或本地文件路径（可选） | `"https://v.douyin.com/xxxxx/"` 或 `"https://v.kuaishou.com/xxxxx"` 或 `"D:\video.mp4"` |
 | `-m, --model` | 转录模型选择 | `paraformer` 或 `doubao`（默认） |
 | `-s, --speaker-info` | 启用说话人识别 | 添加此标志即可 |
 | `-c, --config` | 配置文件路径 | `./config.json`（默认） |
@@ -399,6 +410,41 @@ result = parser.parse("https://www.xiaohongshu.com/explore/xxxxx")
 title, tag = parser.parse_title_and_tag("视频标题 #标签1 #标签2")
 ```
 
+### 快手解析模块 (modules/kuaishou_parser.py)
+
+封装了快手链接解析功能，使用 Playwright 浏览器自动化 + GraphQL API。
+
+```python
+from modules import KuaishouLinkParser
+
+parser = KuaishouLinkParser()
+
+# 从分享文本中提取URL
+url = parser.extract_url('https://v.kuaishou.com/KH3UkHnt 你真的了解"卷积神经网络"吗？...')
+
+# 解析视频信息
+result = parser.parse("https://v.kuaishou.com/KH3UkHnt")
+# result 包含: status, urls, content, author_info, statistics, video_detail
+
+# 支持完整链接
+result = parser.parse("https://www.kuaishou.com/short-video/xxxxx")
+
+# 提取标题和标签
+title, tag = parser.parse_title_and_tag("视频标题 #标签1 #标签2")
+```
+
+**注意**：快手分享文本可能包含 ASCII 双引号 `"`，会导致 shell 参数解析失败。解决方式：
+```bash
+# 方式1：只粘贴URL（推荐）
+python main.py "https://v.kuaishou.com/KH3UkHnt" -o result.json
+
+# 方式2：用单引号包裹（bash）
+python main.py '完整分享文本含"引号"...' -o result.json
+
+# 方式3：通过 stdin 管道输入
+echo '完整分享文本含"引号"...' | python main.py -o result.json
+```
+
 ### 文本提取模块 (modules/text_extractor.py)
 
 封装了音频转文本功能，支持 URL、本地文件和受限平台音频URL。
@@ -530,6 +576,7 @@ python regenerate_mindmap.py ./output/视频标题_assets/mindmap.md
 | 抖音解析 | Playwright | 浏览器自动化，捕获 API 响应 |
 | Bilibili 解析 | HTTP API | 直接调用公开 API，速度快 |
 | 小红书解析 | HTTP + SSR 解析 | 从页面 SSR 数据（`__INITIAL_STATE__`）提取信息，支持视频和图文笔记 |
+| 快手解析 | Playwright + GraphQL | 浏览器自动化获取 cookies，调用 GraphQL API 获取视频详情 |
 | 本地文件解析 | ffprobe | 获取视频时长等元数据，转录需上传 OSS |
 | 音频转录 | 豆包 / Paraformer | 支持两种语音识别模型，自动处理受限平台URL |
 | 文本格式化 | DeepSeek API | 摘要生成和原文排版优化 |
@@ -583,12 +630,20 @@ python regenerate_mindmap.py ./output/视频标题_assets/mindmap.md
    - 本地视频无封面、统计数据等信息，笔记中对应字段显示为"无"或"无数据"
 
 10. **受限音频URL处理**
-    - Bilibili、抖音和小红书的音频URL需要特殊请求头（Referer 等）才能下载
+    - Bilibili、抖音、小红书和快手的音频URL需要特殊请求头（Referer 等）才能下载
     - 转录服务无法直接访问这些受限URL，程序会自动检测并处理
     - 处理流程：下载音频到本地临时文件 → 上传到 OSS → 转录 → 自动清理临时文件和 OSS 文件
     - 需要配置阿里云 OSS（同本地视频转录）
 
-11. **小红书笔记类型**
+11. **快手链接解析**
+    - 快手页面是纯 SPA（无 SSR 数据），需要通过 Playwright 浏览器自动化获取 cookies
+    - 视频数据通过 GraphQL API（`visionVideoDetail` query）获取
+    - 快手视频为音视频合一的 MP4 格式，`audio_url` 与 `video_url` 相同
+    - `share_count` 使用播放数（`viewCount`）代替，因为快手 API 不返回分享数
+    - `collect_count` 始终为 `null`（API 不提供收藏数）
+    - 分享文本中可能包含 ASCII 双引号 `"`，需注意 shell 引号处理（见使用方法中的说明）
+
+12. **小红书笔记类型**
     - 小红书支持两种笔记类型：视频笔记和图文笔记
     - 视频笔记：正常提取视频URL并转录音频，流程与抖音/Bilibili一致
     - 图文笔记：无视频/音频，跳过转录步骤，提取图片列表和正文内容
@@ -640,6 +695,12 @@ python regenerate_mindmap.py ./output/视频标题_assets/mindmap.md
 1. 链接是否有效（xhslink.com 短链接或 xiaohongshu.com 完整链接）
 2. 网络连接是否正常（需要能访问 xiaohongshu.com）
 3. 笔记是否需要登录才能查看（部分笔记可能有访问限制）
+
+### Q: 快手分享文本粘贴后命令行报错？
+**A**: 快手分享文本中常包含 ASCII 双引号 `"`，会破坏 shell 的引号解析。三种解决方式：
+1. **只粘贴 URL**（推荐）：`python main.py "https://v.kuaishou.com/xxxxx" -o result.json`
+2. **用单引号包裹**：`python main.py '...分享文本...' -o result.json`
+3. **通过 stdin 输入**：`echo '...分享文本...' | python main.py -o result.json`
 
 ### Q: 如何修改思维导图内容？
 **A**: 编辑 `{视频标题}_assets/mindmap.md` 文件（标准 Markdown 层级标题格式），然后运行：

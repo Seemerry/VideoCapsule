@@ -29,6 +29,11 @@ class FrameExtractor:
         'Referer': 'https://www.xiaohongshu.com',
     }
 
+    KUAISHOU_HEADERS = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://www.kuaishou.com',
+    }
+
     def extract_frames(self, video_source: str, timestamps_ms: List[int],
                        output_dir: str, title: str) -> List[dict]:
         """从视频中提取指定时间点的帧图片
@@ -108,6 +113,8 @@ class FrameExtractor:
                 headers = self.DOUYIN_HEADERS
             elif platform == 'xiaohongshu':
                 headers = self.XIAOHONGSHU_HEADERS
+            elif platform == 'kuaishou':
+                headers = self.KUAISHOU_HEADERS
 
             response = requests.get(url, headers=headers, stream=True, timeout=120)
             response.raise_for_status()
@@ -165,6 +172,8 @@ class FrameExtractor:
             return 'douyin'
         if any(d in url_lower for d in ['xiaohongshu.com', 'xhscdn.com']):
             return 'xiaohongshu'
+        if any(d in url_lower for d in ['kuaishou.com', 'ksvideo']):
+            return 'kuaishou'
         return 'other'
 
     @staticmethod
