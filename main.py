@@ -7,7 +7,7 @@ import os
 import re
 import sys
 
-from modules import DouyinLinkParser, BilibiliLinkParser, LocalVideoParser, TextExtractor, MarkdownGenerator
+from modules import DouyinLinkParser, BilibiliLinkParser, LocalVideoParser, XiaohongshuLinkParser, TextExtractor, MarkdownGenerator
 
 
 def detect_platform(url: str) -> str:
@@ -29,6 +29,8 @@ def detect_platform(url: str) -> str:
         return 'douyin'
     elif any(domain in url_lower for domain in ['bilibili.com', 'b23.tv']) or re.search(r'BV[a-zA-Z0-9]{10,}', url):
         return 'bilibili'
+    elif any(domain in url_lower for domain in ['xiaohongshu.com', 'xhslink.com', 'xhs.cn']):
+        return 'xiaohongshu'
     return 'unknown'
 
 
@@ -39,6 +41,7 @@ class VideoExtractor:
         self.douyin_parser = DouyinLinkParser()
         self.bilibili_parser = BilibiliLinkParser()
         self.local_parser = LocalVideoParser()
+        self.xiaohongshu_parser = XiaohongshuLinkParser()
         self.text_extractor = TextExtractor(config_path)
 
     def _get_parser(self, platform: str):
@@ -47,6 +50,8 @@ class VideoExtractor:
             return self.bilibili_parser
         elif platform == 'local':
             return self.local_parser
+        elif platform == 'xiaohongshu':
+            return self.xiaohongshu_parser
         return self.douyin_parser
 
     def extract(self, url: str,
@@ -72,6 +77,12 @@ class VideoExtractor:
         video_info = parser.parse(url)
 
         if not video_info.get('status', {}).get('success'):
+            return video_info
+
+        # 图文笔记跳过音频转录
+        note_type = video_info.get('content', {}).get('note_type')
+        if note_type == 'image':
+            video_info['transcription'] = None
             return video_info
 
         # 提取音频URL
@@ -107,9 +118,9 @@ class VideoExtractor:
 def main():
     """主函数"""
     arg_parser = argparse.ArgumentParser(
-        description='视频信息提取器 - 支持抖音、Bilibili和本地视频，输出完整的视频信息和文本'
+        description='视频信息提取器 - 支持抖音、Bilibili、小红书和本地视频，输出完整的视频信息和文本'
     )
-    arg_parser.add_argument('url', nargs='?', help='视频链接、分享文本或本地视频文件路径（支持抖音/Bilibili/本地文件）')
+    arg_parser.add_argument('url', nargs='?', help='视频链接、分享文本或本地视频文件路径（支持抖音/Bilibili/小红书/本地文件）')
     arg_parser.add_argument('-m', '--model', choices=['paraformer', 'doubao'],
                         default='doubao', help='转录模型（默认: doubao）')
     arg_parser.add_argument('-s', '--speaker-info', action='store_true',

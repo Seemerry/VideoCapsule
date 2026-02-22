@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a multi-platform video information extractor that combines link parsing and audio transcription. Given a Douyin URL, Bilibili URL, or local video file, it extracts comprehensive video metadata, transcribes the audio content using speech-to-text APIs, and generates Markdown notes with AI-powered summaries.
+This is a multi-platform video information extractor that combines link parsing and audio transcription. Given a Douyin URL, Bilibili URL, Xiaohongshu URL, or local video file, it extracts comprehensive video metadata, transcribes the audio content using speech-to-text APIs, and generates Markdown notes with AI-powered summaries.
 
 **Note**: This project is fully self-contained with no external project dependencies.
 
@@ -13,7 +13,7 @@ This is a multi-platform video information extractor that combines link parsing 
 ### Data Flow
 
 ```
-Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Video Info → TextExtractor → Transcription
+Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Xiaohongshu/Local) → Video Info → TextExtractor → Transcription
                                                                                     ↓
                                                                             Complete JSON Output
                                                                                     ↓
@@ -28,12 +28,13 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
 ### Core Components
 
 **main.py** - Entry point and orchestrator
-- `detect_platform(url)` - Detects platform from URL or local file path (douyin/bilibili/local/unknown)
+- `detect_platform(url)` - Detects platform from URL or local file path (douyin/bilibili/xiaohongshu/local/unknown)
 - `VideoExtractor.extract()` - Main extraction pipeline
   1. Detects platform and selects appropriate parser
-  2. Parses URL via `DouyinLinkParser`, `BilibiliLinkParser`, or `LocalVideoParser`
-  3. Extracts audio URL from video info
-  4. Transcribes audio via `TextExtractor`
+  2. Parses URL via `DouyinLinkParser`, `BilibiliLinkParser`, `XiaohongshuLinkParser`, or `LocalVideoParser`
+  3. For image notes (`note_type == 'image'`), skips transcription and returns immediately
+  4. Extracts audio URL from video info
+  5. Transcribes audio via `TextExtractor`
   5. Post-processes title/tags
   6. Generates Markdown note via `MarkdownGenerator` (when `-o` flag is used)
      - If `--format-text` is enabled, calls `TextFormatter.process_text()` for summary + formatting
@@ -80,6 +81,26 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
 - Extracts: title (from filename), duration (via ffprobe), file path
 - Statistics fields (like_count, etc.) are set to `null`
 
+**modules/xiaohongshu_parser.py** - Xiaohongshu (小红书) note metadata extraction
+- HTTP-based parser (no browser automation needed — avoids Xiaohongshu's aggressive anti-bot detection)
+- Uses `_XiaohongshuParserCore` class for all parsing logic
+- `XiaohongshuLinkParser` class - Public interface (same as other parsers)
+- Key methods:
+  - `extract_url()` - Extracts clean URL from share text (supports `xhslink.com`, `xiaohongshu.com/explore/`, `xiaohongshu.com/discovery/item/`)
+  - `_resolve_short_url()` - Resolves `xhslink.com` short links via HTTP redirect to get full URL with `xsec_token`
+  - `parse()` - Fetches page HTML via HTTP, extracts `__INITIAL_STATE__` JSON, supplements with `og:*` meta tags
+  - `_extract_initial_state()` - Parses SSR-rendered `window.__INITIAL_STATE__` from script tag (replaces JS `undefined` with JSON `null`)
+  - `_extract_from_page_data()` - Extracts from `note.noteDetailMap[noteId].note` structure
+  - `_extract_from_note_card()` - Shared extraction logic for note data (handles both camelCase and snake_case field names)
+  - `_extract_from_html()` - Fallback extraction from `og:title`, `og:image`, `og:video` meta tags
+  - `_parse_count()` - Handles string counts like `'1.2万'` → `12000`
+  - `parse_title_and_tag()` - Handles `#标签[话题]#` format (Xiaohongshu-specific bracket+hash pattern)
+- Supports two note types:
+  - **Video notes** (`note_type: 'video'`): extracts video URL from `video.media.stream.h264[].masterUrl`, audio_url = video_url (Xiaohongshu videos have combined audio/video)
+  - **Image notes** (`note_type: 'image'`): extracts image list from `imageList[].infoList[-1].url`, no video/audio URLs
+- Cover URL: supplemented from `og:image` meta tag when SSR data lacks `infoList` for cover
+- Debug mode available via `XHS_DEBUG=1` environment variable
+
 **modules/oss_uploader.py** - OSS file upload for local video transcription
 - `OSSUploader` class - Handles file upload to Alibaba Cloud OSS
 - Key methods:
@@ -92,10 +113,10 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
 **modules/text_extractor.py** - Audio transcription
 - Self-contained audio-to-text functionality
 - Supports two models: `doubao` (default) and `paraformer`
-- Supports URLs, local files, and restricted platform URLs (Bilibili/Douyin)
+- Supports URLs, local files, and restricted platform URLs (Bilibili/Douyin/Xiaohongshu)
 - Key architecture:
   - `_get_oss_uploader()` - Lazy-loads OSS uploader for local files
-  - `_RESTRICTED_PATTERNS` - Defines domain patterns and required HTTP headers for Bilibili/Douyin audio URLs
+  - `_RESTRICTED_PATTERNS` - Defines domain patterns and required HTTP headers for Bilibili/Douyin/Xiaohongshu audio URLs
   - `_detect_restricted_url(url)` - Checks if URL belongs to a restricted platform, returns required headers or None
   - `_download_to_temp(url, headers)` - Downloads restricted URL to local temp file using platform-specific headers
   - `_transcribe_audio_doubao()` - Two-phase: submit → poll (60 retries, 2s interval)
@@ -104,7 +125,7 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
   - `_add_speaker_label()` - Auto-merges consecutive segments from same speaker
 - Three transcription paths in `extract()`:
   1. **Local file**: upload to OSS → transcribe → delete from OSS
-  2. **Restricted remote URL** (Bilibili/Douyin): download with platform headers → upload to OSS → transcribe → delete from OSS → delete temp file
+  2. **Restricted remote URL** (Bilibili/Douyin/Xiaohongshu): download with platform headers → upload to OSS → transcribe → delete from OSS → delete temp file
   3. **Normal remote URL**: pass URL directly to transcription API
 
 **modules/md_generator.py** - Markdown note generation
@@ -114,8 +135,9 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
   - `_load_template()` - Loads `视频笔记模板.md` and converts Unicode quotes to ASCII
   - `generate()` - Generates MD file from video info dict
     - Parameters: `video_info`, `output_dir`, `format_text`, `config_path`
+    - Detects `note_type` from `content.note_type`: image notes insert image gallery in text section, skip keyframe extraction
     - If `format_text=True`, calls `TextFormatter.process_text()` before generating
-    - If `format_text=True` and segments exist, calls `_insert_frames()` for keyframe images
+    - If `format_text=True` and segments exist (video notes only), calls `_insert_frames()` for keyframe images
     - If `format_text=True`, calls `TextFormatter.generate_mindmap_markdown()` + `MindMapGenerator.generate()` for mindmap
   - `_format_duration()` - Converts milliseconds to `mm:ss` or `hh:mm:ss`
   - `_format_timestamp()` - Converts Unix timestamp to `YYYY-MM-DD HH:mm`
@@ -172,6 +194,7 @@ Input URL/File → Platform Detection → Parser (Douyin/Bilibili/Local) → Vid
   - `_download_video(url, platform)` - Downloads remote video
     - Bilibili: includes Referer header, saves as `.m4s`
     - Douyin: includes Referer header (`https://www.douyin.com/`), saves as `.mp4`
+    - Xiaohongshu: includes Referer header (`https://www.xiaohongshu.com`), saves as `.mp4`
     - Other: standard HTTP GET, saves as `.mp4`
   - `_extract_single_frame(video_path, timestamp_ms, output_path)` - ffmpeg call
     - Command: `ffmpeg -ss {seconds} -i {video_path} -vframes 1 -q:v 2 -y {output_path}`
@@ -239,6 +262,12 @@ python main.py "https://www.bilibili.com/video/BVxxxxx/" -o result.json
 # Bilibili short links
 python main.py "https://b23.tv/xxxxx" -o result.json
 
+# Xiaohongshu links (auto-detected, supports share text with URL)
+python main.py "http://xhslink.com/o/xxxxx" -o result.json
+
+# Xiaohongshu full links
+python main.py "https://www.xiaohongshu.com/explore/xxxxx" -o result.json
+
 # Local video files (auto-detected)
 python main.py "D:\path\to\video.mp4" -o result.json
 
@@ -266,6 +295,12 @@ python main.py "https://www.bilibili.com/video/BV1MbFXz5Esa/" -o test.json
 # Quick test with text formatting (summary + formatted transcript + mindmap)
 python main.py "https://www.bilibili.com/video/BV1MbFXz5Esa/" --format-text -o test.json
 
+# Quick test with Xiaohongshu URL (video note, parse only)
+python main.py "http://xhslink.com/o/5uQW2gORRU1" --no-transcribe -o test.json
+
+# Quick test with Xiaohongshu (full flow with transcription)
+python main.py "http://xhslink.com/o/5uQW2gORRU1" --format-text -o test.json
+
 # Quick test with local video (parse only)
 python main.py "D:\path\to\video.mp4" --no-transcribe -o test.json
 
@@ -273,7 +308,7 @@ python main.py "D:\path\to\video.mp4" --no-transcribe -o test.json
 python main.py "D:\path\to\video.mp4" -o test.json
 
 # Verify output
-cat test.json | python -c "import sys, json; d=json.load(sys.stdin); print('Success:', d['status']['success']); print('Platform:', 'Bilibili' if 'BV' in d.get('video_detail', {}).get('video_id', '') else ('Local' if 'http' not in d.get('urls', {}).get('video_url', '') else 'Douyin'))"
+cat test.json | python -c "import sys, json; d=json.load(sys.stdin); print('Success:', d['status']['success']); print('Type:', d.get('content', {}).get('note_type', 'N/A'))"
 ```
 
 ## Key Implementation Details
@@ -290,6 +325,8 @@ def detect_platform(url: str) -> str:
         return 'douyin'
     elif any(domain in url_lower for domain in ['bilibili.com', 'b23.tv']) or re.search(r'BV[a-zA-Z0-9]{10,}', url):
         return 'bilibili'
+    elif any(domain in url_lower for domain in ['xiaohongshu.com', 'xhslink.com', 'xhs.cn']):
+        return 'xiaohongshu'
     return 'unknown'
 ```
 
@@ -318,8 +355,20 @@ Tries `audio_url` first, falls back to `video_url` if missing.
 - Resolves b23.tv short links via redirect
 - Extracts audio from DASH format (`data.dash.audio[0].baseUrl`)
 
+**Xiaohongshu Parser:**
+- Uses direct HTTP requests (not Playwright) to fetch page HTML — Xiaohongshu's anti-bot blocks headless browsers but serves full SSR data to HTTP requests
+- Resolves `xhslink.com` short links via HTTP redirect (preserves `xsec_token` auth parameter)
+- Converts `discovery/item/{id}` URLs to `explore/{id}` format with original query params
+- Extracts structured data from `window.__INITIAL_STATE__` JSON in page HTML (replaces JS `undefined` → `null`)
+- Supplements missing fields (cover URL, video URL) from `og:*` meta tags
+- Two note types: video (`type: 'video'`) and image (`type: 'image'`)
+- Image notes: no video/audio URLs, image list in `urls.images`, description in `content.desc`
+- Video notes: audio_url = video_url (combined stream), video from `video.media.stream.h264[].masterUrl`
+- Tag format: `#科技[话题]#` — bracket tags extracted alongside hash tags
+- Debug mode available via `XHS_DEBUG=1` environment variable
+
 ### Unified Output Structure
-Both parsers output the same hierarchical JSON structure with categories:
+All parsers output the same hierarchical JSON structure with categories:
 `status`, `urls`, `content`, `author_info`, `statistics`, `video_detail`, `music_info`
 
 All fields are optional - check existence before accessing.
@@ -328,6 +377,7 @@ All fields are optional - check existence before accessing.
 - If transcription fails, `video_info['transcription']` is set to `None`
 - Error stored in `video_info['status']['transcription_error']`
 - Video info is still returned even if transcription fails
+- Image notes (`note_type == 'image'`) skip transcription entirely; `transcription` is `None`
 
 ### Windows Console Encoding Issue
 Direct console output shows Chinese as garbled text (GBK encoding issue).
@@ -347,8 +397,8 @@ When using `-o` flag, two files are generated:
 ```json
 {
   "status": {"success": bool, "error": str, "transcription_error": str},
-  "urls": {"video_url": str, "audio_url": str, "cover_url": str, "final_url": str},
-  "content": {"title": str, "desc": str, "tag": str},
+  "urls": {"video_url": str, "audio_url": str, "cover_url": str, "images": [str], "final_url": str},
+  "content": {"title": str, "desc": str, "tag": str, "note_type": str},
   "author_info": {"author": str, "author_id": str},
   "statistics": {"like_count": int, "comment_count": int, "share_count": int, "collect_count": int},
   "video_detail": {"duration": int, "video_id": str, "create_time": int},
@@ -356,6 +406,9 @@ When using `-o` flag, two files are generated:
   "transcription": {"url": str, "text": str, "segments": [{"text": str, "start": int, "end": int}]}
 }
 ```
+
+- `urls.images` — Only present for Xiaohongshu image notes; list of image URLs
+- `content.note_type` — Only present for Xiaohongshu notes; `'video'` or `'image'`
 
 ### MD Note Structure
 Based on `视频笔记模板.md`, contains:
@@ -375,8 +428,9 @@ Based on `视频笔记模板.md`, contains:
   - Source file link: `> 源文件: [title_assets/mindmap.md](title_assets/mindmap.md)（可编辑后重新生成）`
   - When `--format-text` is not used or generation fails, the section is empty
 
-Note: `transcription` is `null` if extraction fails or no audio URL is found.
+Note: `transcription` is `null` if extraction fails, no audio URL is found, or for image notes.
 When `--format-text` is not used, summary shows "无摘要" and text shows raw transcription.
+For image notes, the text section contains image gallery (`![图片N](url)`) followed by description text. Keyframe extraction is skipped.
 
 ## Bilibili-Specific Notes
 
@@ -394,6 +448,38 @@ HEADERS = {
 }
 ```
 Required for successful API calls.
+
+## Xiaohongshu-Specific Notes
+
+### Two Note Types
+Xiaohongshu has two content types:
+- **Video notes** (`note_type: 'video'`): Contains a video with combined audio/video stream. `audio_url` equals `video_url`. Transcription and keyframe extraction work normally.
+- **Image notes** (`note_type: 'image'`): Contains a list of images and text description. No video/audio. Transcription is skipped. Images are inserted as `![图片N](url)` in the Markdown note's text section.
+
+### Short Link Resolution
+- `xhslink.com` short links resolve via HTTP redirect to `xiaohongshu.com/discovery/item/{noteId}?...&xsec_token=...`
+- The `xsec_token` parameter is essential for authorization — must be preserved in the explore URL
+- Parser converts `discovery/item/` to `explore/` format while keeping query params
+
+### SSR Data Extraction
+- Xiaohongshu pages include full note data in `window.__INITIAL_STATE__` (server-side rendered)
+- Direct HTTP requests receive this data; Playwright-based access is blocked by anti-bot
+- Data path: `__INITIAL_STATE__.note.noteDetailMap[noteId].note`
+- SSR data may lack some fields (e.g., cover image `infoList`), supplemented from `og:image` meta tag
+
+### API Headers
+```python
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Referer': 'https://www.xiaohongshu.com',
+}
+```
+Required for page requests and restricted audio/video URL downloads.
+
+### Tag Format
+Xiaohongshu uses a unique tag format: `#科技[话题]#`
+- Both `#tag` and `[topic]` formats are extracted by `parse_title_and_tag()`
+- Tags appear in `content.desc` (description), not in `content.title`
 
 ## Local Video Notes
 

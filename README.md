@@ -1,12 +1,13 @@
 # 视频信息提取器
 
-综合了抖音、Bilibili 链接解析和本地视频处理的音频转文本工具。输入一个视频链接或本地视频文件，即可获取完整的视频信息和文本转录结果，并自动生成包含摘要的 Markdown 笔记。
+综合了抖音、Bilibili、小红书链接解析和本地视频处理的音频转文本工具。输入一个视频链接或本地视频文件，即可获取完整的视频信息和文本转录结果，并自动生成包含摘要的 Markdown 笔记。
 
 ## 功能特性
 
-- **多平台支持**：自动识别抖音、Bilibili 链接和本地视频文件
+- **多平台支持**：自动识别抖音、Bilibili、小红书链接和本地视频文件
   - 抖音：短链接、完整链接、分享文本
   - Bilibili：BV号链接、b23.tv 短链接、纯BV号
+  - 小红书：xhslink.com 短链接、完整链接、分享文本（支持视频笔记和图文笔记）
   - 本地视频：支持 mp4、avi、mov、mkv、flv、wmv、webm、m4v 格式
 
 - **链接解析模块**：解析视频链接，提取视频信息
@@ -23,7 +24,7 @@
   - 支持豆包录音识别2.0模型（默认）
   - 支持阿里云Paraformer-v2模型
   - 可选说话人识别功能
-  - 自动处理受限音频URL（Bilibili/抖音平台的音频链接需特殊请求头才能下载）
+  - 自动处理受限音频URL（Bilibili/抖音/小红书平台的音频链接需特殊请求头才能下载）
   - 输出完整文本和时间分段信息（毫秒级精度）
 
 - **智能文稿处理**：使用 DeepSeek API 优化转录文本
@@ -60,6 +61,7 @@ DouyinVideoExtractor/
 │   ├── __init__.py
 │   ├── douyin_parser.py        # 抖音链接解析（Playwright）
 │   ├── bilibili_parser.py      # Bilibili链接解析（HTTP API）
+│   ├── xiaohongshu_parser.py   # 小红书链接解析（HTTP + SSR解析）
 │   ├── local_parser.py         # 本地视频解析（ffprobe）
 │   ├── oss_uploader.py         # OSS文件上传模块
 │   ├── text_extractor.py       # 文本提取模块（音频转文本）
@@ -100,7 +102,10 @@ python main.py "https://v.douyin.com/OQsck5Woryw/" -o test.json
 # 4. 运行测试（Bilibili）
 python main.py "https://www.bilibili.com/video/BV1MbFXz5Esa/" -o test.json
 
-# 5. 查看结果
+# 5. 运行测试（小红书）
+python main.py "http://xhslink.com/o/5uQW2gORRU1" -o test.json
+
+# 6. 查看结果
 cat test.json | python -c "import sys, json; d=json.load(sys.stdin); print('标题:', d['content']['title']); print('标签:', d['content'].get('tag', '无'))"
 ```
 
@@ -170,6 +175,12 @@ python main.py "https://www.bilibili.com/video/BVxxxxx/" -o result.json
 # Bilibili短链接
 python main.py "https://b23.tv/xxxxx" -o result.json
 
+# 小红书链接（自动检测平台）
+python main.py "http://xhslink.com/o/xxxxx" -o result.json
+
+# 小红书完整链接
+python main.py "https://www.xiaohongshu.com/explore/xxxxx" -o result.json
+
 # 本地视频文件（自动检测）
 python main.py "D:\path\to\video.mp4" -o result.json
 
@@ -187,7 +198,7 @@ python main.py "URL" --no-transcribe -o result.json
 
 **重要提示**：
 - Windows 控制台中文会显示为乱码，**建议使用 `-o` 参数保存到文件**
-- 程序会自动检测输入类型（抖音/Bilibili/本地文件）
+- 程序会自动检测输入类型（抖音/Bilibili/小红书/本地文件）
 - 本地视频转录需要配置 OSS（用于临时上传）
 - 使用 `--no-transcribe` 可跳过转录，仅提取视频信息
 
@@ -221,7 +232,7 @@ python main.py "URL" --config /path/to/config.json -o result.json
 
 ## 输出格式
 
-程序输出JSON格式的完整信息（抖音和Bilibili输出格式一致）：
+程序输出JSON格式的完整信息（各平台输出格式一致）：
 
 ```json
 {
@@ -232,12 +243,14 @@ python main.py "URL" --config /path/to/config.json -o result.json
     "video_url": "https://...",
     "audio_url": "https://...",
     "cover_url": "https://...",
-    "final_url": "https://..."
+    "final_url": "https://...",
+    "images": ["https://...", "https://..."]
   },
   "content": {
     "title": "视频标题",
     "desc": "视频描述",
-    "tag": "标签1 、标签2"
+    "tag": "标签1 、标签2",
+    "note_type": "video"
   },
   "author_info": {
     "author": "作者昵称",
@@ -281,9 +294,11 @@ python main.py "URL" --config /path/to/config.json -o result.json
 | `urls` | `audio_url` | 音频下载链接 |
 | `urls` | `cover_url` | 封面图片链接 |
 | `urls` | `final_url` | 最终页面链接 |
+| `urls` | `images` | 图片URL列表（小红书图文笔记专用） |
 | `content` | `title` | 视频标题 |
 | `content` | `desc` | 视频描述 |
 | `content` | `tag` | 标签（多个用顿号分隔） |
+| `content` | `note_type` | 笔记类型：`video` 或 `image`（小红书专用） |
 | `author_info` | `author` | 作者昵称 |
 | `author_info` | `author_id` | 作者ID |
 | `statistics` | `like_count` | 点赞数 |
@@ -357,6 +372,31 @@ if parser.is_local_file("D:\\video.mp4"):
     # result 包含: status, urls, content, author_info, statistics, video_detail, music_info
     # 注意: statistics 字段为 null（本地文件无统计数据）
     # 注意: cover_url 等字段为 null（本地文件无封面等信息），笔记生成时自动显示为"无"
+```
+
+### 小红书解析模块 (modules/xiaohongshu_parser.py)
+
+封装了小红书链接解析功能，使用 HTTP 请求 + SSR 数据提取。支持视频笔记和图文笔记两种类型。
+
+```python
+from modules import XiaohongshuLinkParser
+
+parser = XiaohongshuLinkParser()
+
+# 从分享文本中提取URL
+url = parser.extract_url("解构华为云AI Token服务... http://xhslink.com/o/xxxxx")
+
+# 解析笔记信息（视频笔记或图文笔记）
+result = parser.parse("http://xhslink.com/o/xxxxx")
+# result 包含: status, urls, content, author_info, statistics, video_detail, music_info
+# 视频笔记: video_url 为视频地址，note_type = 'video'
+# 图文笔记: video_url 为 None，images 包含图片列表，note_type = 'image'
+
+# 支持完整链接
+result = parser.parse("https://www.xiaohongshu.com/explore/xxxxx")
+
+# 提取标题和标签（支持 #标签 和 [话题] 格式）
+title, tag = parser.parse_title_and_tag("视频标题 #标签1 #标签2")
 ```
 
 ### 文本提取模块 (modules/text_extractor.py)
@@ -489,6 +529,7 @@ python regenerate_mindmap.py ./output/视频标题_assets/mindmap.md
 |------|---------|------|
 | 抖音解析 | Playwright | 浏览器自动化，捕获 API 响应 |
 | Bilibili 解析 | HTTP API | 直接调用公开 API，速度快 |
+| 小红书解析 | HTTP + SSR 解析 | 从页面 SSR 数据（`__INITIAL_STATE__`）提取信息，支持视频和图文笔记 |
 | 本地文件解析 | ffprobe | 获取视频时长等元数据，转录需上传 OSS |
 | 音频转录 | 豆包 / Paraformer | 支持两种语音识别模型，自动处理受限平台URL |
 | 文本格式化 | DeepSeek API | 摘要生成和原文排版优化 |
@@ -542,10 +583,17 @@ python regenerate_mindmap.py ./output/视频标题_assets/mindmap.md
    - 本地视频无封面、统计数据等信息，笔记中对应字段显示为"无"或"无数据"
 
 10. **受限音频URL处理**
-   - Bilibili 和抖音的音频URL需要特殊请求头（Referer 等）才能下载
-   - 转录服务无法直接访问这些受限URL，程序会自动检测并处理
-   - 处理流程：下载音频到本地临时文件 → 上传到 OSS → 转录 → 自动清理临时文件和 OSS 文件
-   - 需要配置阿里云 OSS（同本地视频转录）
+    - Bilibili、抖音和小红书的音频URL需要特殊请求头（Referer 等）才能下载
+    - 转录服务无法直接访问这些受限URL，程序会自动检测并处理
+    - 处理流程：下载音频到本地临时文件 → 上传到 OSS → 转录 → 自动清理临时文件和 OSS 文件
+    - 需要配置阿里云 OSS（同本地视频转录）
+
+11. **小红书笔记类型**
+    - 小红书支持两种笔记类型：视频笔记和图文笔记
+    - 视频笔记：正常提取视频URL并转录音频，流程与抖音/Bilibili一致
+    - 图文笔记：无视频/音频，跳过转录步骤，提取图片列表和正文内容
+    - 图文笔记的 Markdown 笔记中会展示图片画廊和正文内容
+    - 小红书短链接（xhslink.com）会自动解析为完整链接
 
 ## 常见问题
 
@@ -583,6 +631,15 @@ python regenerate_mindmap.py ./output/视频标题_assets/mindmap.md
 2. OSS Bucket 权限是否允许 PutObject/GetObject/DeleteObject
 3. 是否安装了 ffmpeg（包含 ffprobe）
 4. 本地视频文件格式是否支持（mp4/avi/mov/mkv/flv/wmv/webm/m4v）
+
+### Q: 小红书图文笔记支持转录吗？
+**A**: 不支持。图文笔记没有视频/音频内容，程序会自动识别并跳过转录步骤。笔记中会展示图片画廊和正文内容，不会生成摘要和思维导图。
+
+### Q: 小红书链接解析失败怎么办？
+**A**: 检查：
+1. 链接是否有效（xhslink.com 短链接或 xiaohongshu.com 完整链接）
+2. 网络连接是否正常（需要能访问 xiaohongshu.com）
+3. 笔记是否需要登录才能查看（部分笔记可能有访问限制）
 
 ### Q: 如何修改思维导图内容？
 **A**: 编辑 `{视频标题}_assets/mindmap.md` 文件（标准 Markdown 层级标题格式），然后运行：

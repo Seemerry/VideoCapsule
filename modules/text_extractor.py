@@ -64,6 +64,13 @@ class TextExtractor:
                 'Referer': 'https://www.douyin.com/',
             },
         },
+        'xiaohongshu': {
+            'domains': ['xhscdn.com', 'xiaohongshu.com', 'xhslink.com'],
+            'headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://www.xiaohongshu.com',
+            },
+        },
     }
 
     def _detect_restricted_url(self, url: str) -> Optional[dict]:

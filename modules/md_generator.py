@@ -216,27 +216,56 @@ class MarkdownGenerator:
         share_count = statistics.get('share_count')
         collect_count = statistics.get('collect_count')
 
+        # 笔记类型和图片列表
+        note_type = content.get('note_type')
+        images = urls.get('images', [])
+
         # 转录文本
-        raw_text = transcription.get('text', '无转录内容') if transcription else '无转录内容'
+        if note_type == 'image':
+            # 图文笔记：使用描述作为文本内容
+            desc_text = content.get('desc') or ''
+            raw_text = desc_text if desc_text else '无内容'
+        else:
+            raw_text = transcription.get('text', '无转录内容') if transcription else '无转录内容'
 
         # 初始化摘要和文本
         summary = '无摘要'
         text = raw_text
         mindmap_image_md = ''
 
+        # 图文笔记：在文本中插入图片
+        if note_type == 'image' and images:
+            image_md_parts = []
+            for idx, img_url in enumerate(images, 1):
+                image_md_parts.append(f'![图片{idx}]({img_url})')
+            images_section = '\n\n'.join(image_md_parts)
+            if text and text != '无内容':
+                text = images_section + '\n\n---\n\n' + text
+            else:
+                text = images_section
+
         # 如果启用格式化，使用 DeepSeek API 处理文本（生成摘要 + 格式化原文）
-        if format_text and raw_text != '无转录内容':
+        if format_text and raw_text not in ('无转录内容', '无内容'):
             formatter = TextFormatter(config_path)
             result = formatter.process_text(raw_text, title)
             if result.get('summary'):
                 summary = result['summary']
             if result.get('formatted_text'):
-                text = result['formatted_text']
+                formatted = result['formatted_text']
+                # 图文笔记：在格式化文本前重新插入图片
+                if note_type == 'image' and images:
+                    image_md_parts = []
+                    for idx, img_url in enumerate(images, 1):
+                        image_md_parts.append(f'![图片{idx}]({img_url})')
+                    images_section = '\n\n'.join(image_md_parts)
+                    text = images_section + '\n\n---\n\n' + formatted
+                else:
+                    text = formatted
             print("文本处理完成", file=sys.stderr)
 
-            # 提取关键帧并插入到格式化后的文本中
+            # 提取关键帧并插入到格式化后的文本中（仅视频笔记）
             segments = transcription.get('segments', []) if transcription else []
-            if segments:
+            if segments and note_type != 'image':
                 text = self._insert_frames(
                     formatter, text, segments,
                     urls.get('video_url', ''), title, output_dir or '.'
